@@ -40,8 +40,8 @@ import (
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
-	cachev1alpha1 "github.com/pedromartinssouza/dapp-operator/api/v1alpha1"
-	"github.com/pedromartinssouza/dapp-operator/internal/controller"
+	cachev1alpha1 "github.com/pedromartinssouza/orca/api/v1alpha1"
+	"github.com/pedromartinssouza/orca/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -188,7 +188,7 @@ func main() {
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "d1611b6d.dapp-operator.com",
+		LeaderElectionID:       "d1611b6d.orca.com",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -206,11 +206,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.DappReconciler{
+	if err := (&controller.DappManifestReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Dapp")
+		setupLog.Error(err, "unable to create controller", "controller", "DappManifest")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

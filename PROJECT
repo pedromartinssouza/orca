@@ -2,22 +2,22 @@
 # This file is used to track the info used to scaffold your project
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
-domain: dapp-operator.com
+domain: orca.com
 layout:
 - go.kubebuilder.io/v4
 plugins:
   manifests.sdk.operatorframework.io/v2: {}
   scorecard.sdk.operatorframework.io/v2: {}
-projectName: dapp-operator
-repo: github.com/pedromartinssouza/dapp-operator
+projectName: orca
+repo: github.com/pedromartinssouza/orca
 resources:
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: dapp-operator.com
+  domain: orca.com
   group: cache
-  kind: Dapp
-  path: github.com/pedromartinssouza/dapp-operator/api/v1alpha1
+  kind: DappManifest
+  path: github.com/pedromartinssouza/orca/api/v1alpha1
   version: v1alpha1
 version: "3"

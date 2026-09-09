@@ -1,0 +1,70 @@
+@startuml dappmanifest-crd-class-diagram
+title DappManifest CRD — cache.orca.com/v1alpha1
+
+skinparam classAttributeIconSize 0
+skinparam class {
+    BackgroundColor White
+    BorderColor Black
+    ArrowColor Black
+}
+
+class DappManifest {
+    + apiVersion : string
+    + kind : string
+}
+
+class DappManifestSpec {
+    + dappName : string
+    + namespace : string
+    + nodeSelector : map[string]string
+}
+
+class HelmSpec {
+    + chartName : string
+    + releaseName : string
+    + repoURL : string
+    + version : string
+}
+
+class Toleration {
+    + key : string
+    + operator : string
+    + value : string
+    + effect : string
+    + tolerationSeconds : int64
+}
+
+class DappManifestStatus {
+    + helmReleaseRef : string
+    + helmRepositoryRef : string
+}
+
+class Condition {
+    + type : string  {required}
+    + status : "True" | "False" | "Unknown"  {required}
+    + reason : string  {required}
+    + message : string  {required}
+    + lastTransitionTime : datetime  {required}
+    + observedGeneration : int64
+}
+
+DappManifest *-- "1" DappManifestSpec : spec
+DappManifest *-- "1" DappManifestStatus : status
+DappManifestSpec *-- "0..1" HelmSpec : helm
+DappManifestSpec *-- "0..*" Toleration : tolerations
+DappManifestStatus *-- "0..*" Condition : conditions
+
+note top of DappManifest
+  Group: cache.orca.com
+  Version: v1alpha1
+  Scope: Namespaced
+  Printer columns: Ready, Installed, Age
+end note
+
+note right of Condition
+  Ready and Installed conditions
+  are surfaced as printer columns
+  via .status.conditions[?(@.type==X)]
+end note
+
+@enduml

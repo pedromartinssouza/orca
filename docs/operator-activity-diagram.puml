@@ -1,0 +1,72 @@
+@startuml operator-activity-diagram
+skinparam ActivityBorderColor #333333
+skinparam ActivityBackgroundColor #F5F5F5
+skinparam ActivityDiamondBackgroundColor #DDEEFF
+skinparam ArrowColor #333333
+skinparam ActivityFontSize 13
+skinparam DiamondFontSize 12
+
+title ORCA — Reconciliation Loop
+
+start
+
+:Reconciliation triggered\n(DappManifest event or owned resource change);
+
+:Fetch DappManifest from cluster;
+
+if (DappManifest found?) then (no)
+  :Discard event\n(resource already deleted);
+  stop
+else (yes)
+endif
+
+partition "Chart Repository Phase" {
+  :Create or update the\nChart Repository resource\npointing to the dApp Helm repo;
+
+  if (Chart Repository reconciled?) then (no)
+    :Set Ready = False\n[reason: ChartRepositoryFailed];
+    :Update DappManifest status;
+    :Return error → requeue;
+    stop
+  else (yes)
+  endif
+}
+
+partition "Chart Release Phase" {
+  :Build scheduling rules\n(nodeSelector + tolerations)\nto target the correct RAN node;
+
+  :Create or update the\nChart Release resource\n(chart, version, target namespace,\nscheduling rules);
+
+  if (Chart Release reconciled?) then (no)
+    :Set Ready = False\n[reason: ChartReleaseFailed];
+    :Update DappManifest status;
+    :Return error → requeue;
+    stop
+  else (yes)
+  endif
+}
+
+:Set Ready = True;
+:Record Chart Repository and\nChart Release references in status;
+
+partition "Installation Status Sync" {
+  :Read current Chart Release status\nfrom the deployment tool;
+
+  if (Chart Release has a status?) then (no)
+    :Set Installed = False\n[reason: Pending];
+  else (yes)
+    :Mirror Chart Release status\nas the Installed condition\non the DappManifest;
+  endif
+}
+
+:Update DappManifest status;
+
+if (Installed = True?) then (no)
+  :Requeue after 10 s\n(await deployment completion);
+  stop
+else (yes)
+  :Reconciliation complete\n(dApp running on target node);
+  stop
+endif
+
+@enduml

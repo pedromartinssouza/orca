@@ -1,15 +1,15 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "dapp-operator.fullname" . }}-leader-election
+  name: {{ include "orca.fullname" . }}-leader-election
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "dapp-operator.labels" . | nindent 4 }}
+    {{- include "orca.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ include "dapp-operator.fullname" . }}-leader-election
+  name: {{ include "orca.fullname" . }}-leader-election
 subjects:
 - kind: ServiceAccount
-  name: {{ include "dapp-operator.serviceAccountName" . }}
+  name: {{ include "orca.serviceAccountName" . }}
   namespace: {{ .Release.Namespace }}

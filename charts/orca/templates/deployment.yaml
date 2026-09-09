@@ -1,23 +1,23 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "dapp-operator.fullname" . }}
+  name: {{ include "orca.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "dapp-operator.labels" . | nindent 4 }}
+    {{- include "orca.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      {{- include "dapp-operator.selectorLabels" . | nindent 6 }}
+      {{- include "orca.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "dapp-operator.selectorLabels" . | nindent 8 }}
+        {{- include "orca.selectorLabels" . | nindent 8 }}
       annotations:
         kubectl.kubernetes.io/default-container: manager
     spec:
-      serviceAccountName: {{ include "dapp-operator.serviceAccountName" . }}
+      serviceAccountName: {{ include "orca.serviceAccountName" . }}
       terminationGracePeriodSeconds: 10
       securityContext:
         runAsNonRoot: true
@@ -25,7 +25,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: manager
-        image: {{ include "dapp-operator.image" . }}
+        image: {{ include "orca.image" . }}
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         command:
         - /manager

@@ -28,11 +28,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	cachev1alpha1 "github.com/pedromartinssouza/dapp-operator/api/v1alpha1"
+	cachev1alpha1 "github.com/pedromartinssouza/orca/api/v1alpha1"
 )
 
-var _ = Describe("Dapp Controller", func() {
-	Context("When reconciling a Dapp with a Helm spec", func() {
+var _ = Describe("DappManifest Controller", func() {
+	Context("When reconciling a DappManifest with a Helm spec", func() {
 		const resourceName = "test-dapp"
 		const repoURL = "https://stefanprodan.github.io/podinfo"
 
@@ -43,16 +43,16 @@ var _ = Describe("Dapp Controller", func() {
 		helmReleaseName := types.NamespacedName{Name: resourceName, Namespace: "default"}
 
 		BeforeEach(func() {
-			By("creating the Dapp resource")
-			dapp := &cachev1alpha1.Dapp{}
-			err := k8sClient.Get(ctx, namespacedName, dapp)
+			By("creating the DappManifest resource")
+			dappManifest := &cachev1alpha1.DappManifest{}
+			err := k8sClient.Get(ctx, namespacedName, dappManifest)
 			if err != nil && errors.IsNotFound(err) {
-				Expect(k8sClient.Create(ctx, &cachev1alpha1.Dapp{
+				Expect(k8sClient.Create(ctx, &cachev1alpha1.DappManifest{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
 						Namespace: "default",
 					},
-					Spec: cachev1alpha1.DappSpec{
+					Spec: cachev1alpha1.DappManifestSpec{
 						DappName:  "test-dapp",
 						Namespace: "test-dapp-system",
 						Helm: cachev1alpha1.HelmSpec{
@@ -67,16 +67,16 @@ var _ = Describe("Dapp Controller", func() {
 		})
 
 		AfterEach(func() {
-			By("deleting the Dapp resource")
-			dapp := &cachev1alpha1.Dapp{}
-			err := k8sClient.Get(ctx, namespacedName, dapp)
+			By("deleting the DappManifest resource")
+			dappManifest := &cachev1alpha1.DappManifest{}
+			err := k8sClient.Get(ctx, namespacedName, dappManifest)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(k8sClient.Delete(ctx, dapp)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, dappManifest)).To(Succeed())
 		})
 
 		It("should create a HelmRepository and HelmRelease and set Ready=True", func() {
 			By("running the reconciler")
-			reconciler := &DappReconciler{
+			reconciler := &DappManifestReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}
@@ -97,13 +97,13 @@ var _ = Describe("Dapp Controller", func() {
 			Expect(helmRelease.Spec.TargetNamespace).To(Equal("test-dapp-system"))
 			Expect(helmRelease.Spec.ReleaseName).To(Equal("test-dapp"))
 
-			By("checking that the Dapp status reflects Ready=True")
-			dapp := &cachev1alpha1.Dapp{}
-			Expect(k8sClient.Get(ctx, namespacedName, dapp)).To(Succeed())
-			Expect(dapp.Status.HelmRepositoryRef).To(Equal("default/" + resourceName + "-helmrepo"))
-			Expect(dapp.Status.HelmReleaseRef).To(Equal("default/" + resourceName))
+			By("checking that the DappManifest status reflects Ready=True")
+			dappManifest := &cachev1alpha1.DappManifest{}
+			Expect(k8sClient.Get(ctx, namespacedName, dappManifest)).To(Succeed())
+			Expect(dappManifest.Status.HelmRepositoryRef).To(Equal("default/" + resourceName + "-helmrepo"))
+			Expect(dappManifest.Status.HelmReleaseRef).To(Equal("default/" + resourceName))
 
-			readyCond := findCondition(dapp.Status.Conditions, "Ready")
+			readyCond := findCondition(dappManifest.Status.Conditions, "Ready")
 			Expect(readyCond).NotTo(BeNil())
 			Expect(readyCond.Status).To(Equal(metav1.ConditionTrue))
 		})

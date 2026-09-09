@@ -5,9 +5,9 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-  - cache.dapp-operator.com
+  - cache.orca.com
   resources:
-  - dapps
+  - dappmanifests
   verbs:
   - create
   - delete
@@ -17,15 +17,15 @@ rules:
   - update
   - watch
 - apiGroups:
-  - cache.dapp-operator.com
+  - cache.orca.com
   resources:
-  - dapps/finalizers
+  - dappmanifests/finalizers
   verbs:
   - update
 - apiGroups:
-  - cache.dapp-operator.com
+  - cache.orca.com
   resources:
-  - dapps/status
+  - dappmanifests/status
   verbs:
   - get
   - patch

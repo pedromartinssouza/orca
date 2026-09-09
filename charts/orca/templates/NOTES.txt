@@ -1,9 +1,9 @@
-dapp-operator {{ .Chart.AppVersion }} has been installed in namespace {{ .Release.Namespace }}.
+orca {{ .Chart.AppVersion }} has been installed in namespace {{ .Release.Namespace }}.
 
 The operator watches for Dapp resources cluster-wide. To install a dApp:
 
   kubectl apply -f - <<EOF
-  apiVersion: cache.dapp-operator.com/v1alpha1
+  apiVersion: cache.orca.com/v1alpha1
   kind: Dapp
   metadata:
     name: my-dapp
@@ -25,4 +25,4 @@ Check status:
 NOTE: CRDs are not updated automatically on `helm upgrade`. If the CRD schema
 changes in a new release, apply the updated CRD manually before upgrading:
 
-  kubectl apply -f https://raw.githubusercontent.com/pedromartinssouza/dapp-operator/main/config/crd/bases/cache.dapp-operator.com_dapps.yaml
+  kubectl apply -f https://raw.githubusercontent.com/pedromartinssouza/orca/main/config/crd/bases/cache.orca.com_dapps.yaml

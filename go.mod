@@ -1,4 +1,4 @@
-module github.com/pedromartinssouza/dapp-operator
+module github.com/pedromartinssouza/orca
 
 go 1.24.0
 

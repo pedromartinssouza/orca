@@ -1,11 +1,11 @@
-apiVersion: cache.dapp-operator.com/v1alpha1
-kind: Dapp
+apiVersion: cache.orca.com/v1alpha1
+kind: DappManifest
 metadata:
   labels:
-    app.kubernetes.io/name: dapp-operator
+    app.kubernetes.io/name: orca
     app.kubernetes.io/managed-by: kustomize
   namespace: default
-  name: dapp-sample
+  name: dappmanifest-sample
 spec:
   dappName: my-dapp
   namespace: my-dapp-system

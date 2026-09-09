@@ -1,14 +1,14 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "dapp-operator.name" -}}
+{{- define "orca.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Create a default fully qualified app name.
 */}}
-{{- define "dapp-operator.fullname" -}}
+{{- define "orca.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -24,16 +24,16 @@ Create a default fully qualified app name.
 {{/*
 Create chart label.
 */}}
-{{- define "dapp-operator.chart" -}}
+{{- define "orca.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels applied to all resources.
 */}}
-{{- define "dapp-operator.labels" -}}
-helm.sh/chart: {{ include "dapp-operator.chart" . }}
-{{ include "dapp-operator.selectorLabels" . }}
+{{- define "orca.labels" -}}
+helm.sh/chart: {{ include "orca.chart" . }}
+{{ include "orca.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -43,26 +43,26 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{/*
 Selector labels used by the Deployment and its Pod template.
 */}}
-{{- define "dapp-operator.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "dapp-operator.name" . }}
+{{- define "orca.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "orca.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
 Service account name — uses the override if set, otherwise the chart fullname.
 */}}
-{{- define "dapp-operator.serviceAccountName" -}}
+{{- define "orca.serviceAccountName" -}}
 {{- if .Values.serviceAccount.name }}
 {{- .Values.serviceAccount.name }}
 {{- else }}
-{{- include "dapp-operator.fullname" . }}
+{{- include "orca.fullname" . }}
 {{- end }}
 {{- end }}
 
 {{/*
 Container image reference — uses tag override if set, otherwise Chart.AppVersion.
 */}}
-{{- define "dapp-operator.image" -}}
+{{- define "orca.image" -}}
 {{- $tag := .Values.image.tag | default .Chart.AppVersion }}
 {{- printf "%s:%s" .Values.image.repository $tag }}
 {{- end }}

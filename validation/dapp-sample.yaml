@@ -1,8 +1,8 @@
-apiVersion: cache.dapp-operator.com/v1alpha1
-kind: Dapp
+apiVersion: cache.orca.com/v1alpha1
+kind: DappManifest
 metadata:
   name: dapp-sample
-  namespace: dapp-operator-system
+  namespace: orca-system
 spec:
   dappName: dapp-sample
   namespace: dapp-sample-system
