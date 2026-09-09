@@ -1,0 +1,70 @@
+@startuml dapp-crd-class-diagram
+title Dapp CRD — cache.orca.com/v1alpha1
+
+skinparam classAttributeIconSize 0
+skinparam class {
+    BackgroundColor White
+    BorderColor Black
+    ArrowColor Black
+}
+
+class Dapp {
+    + apiVersion : string
+    + kind : string
+}
+
+class DappSpec {
+    + dappName : string
+    + namespace : string
+    + nodeSelector : map[string]string
+}
+
+class HelmSpec {
+    + chartName : string
+    + releaseName : string
+    + repoURL : string
+    + version : string
+}
+
+class Toleration {
+    + key : string
+    + operator : string
+    + value : string
+    + effect : string
+    + tolerationSeconds : int64
+}
+
+class DappStatus {
+    + helmReleaseRef : string
+    + helmRepositoryRef : string
+}
+
+class Condition {
+    + type : string  {required}
+    + status : "True" | "False" | "Unknown"  {required}
+    + reason : string  {required}
+    + message : string  {required}
+    + lastTransitionTime : datetime  {required}
+    + observedGeneration : int64
+}
+
+Dapp *-- "1" DappSpec : spec
+Dapp *-- "1" DappStatus : status
+DappSpec *-- "0..1" HelmSpec : helm
+DappSpec *-- "0..*" Toleration : tolerations
+DappStatus *-- "0..*" Condition : conditions
+
+note top of Dapp
+  Group: cache.orca.com
+  Version: v1alpha1
+  Scope: Namespaced
+  Printer columns: Ready, Installed, Age
+end note
+
+note right of Condition
+  Ready and Installed conditions
+  are surfaced as printer columns
+  via .status.conditions[?(@.type==X)]
+end note
+
+@enduml

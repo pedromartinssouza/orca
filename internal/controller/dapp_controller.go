@@ -37,7 +37,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	sigsyaml "sigs.k8s.io/yaml"
 
-	cachev1alpha1 "github.com/pedromartinssouza/dapp-operator/api/v1alpha1"
+	cachev1alpha1 "github.com/pedromartinssouza/orca/api/v1alpha1"
 )
 
 // DappReconciler reconciles a Dapp object
@@ -46,9 +46,9 @@ type DappReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=cache.dapp-operator.com,resources=dapps,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=cache.dapp-operator.com,resources=dapps/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=cache.dapp-operator.com,resources=dapps/finalizers,verbs=update
+// +kubebuilder:rbac:groups=cache.orca.com,resources=dapps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=cache.orca.com,resources=dapps/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=cache.orca.com,resources=dapps/finalizers,verbs=update
 // +kubebuilder:rbac:groups=source.toolkit.fluxcd.io,resources=helmrepositories,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=helm.toolkit.fluxcd.io,resources=helmreleases,verbs=get;list;watch;create;update;patch;delete
 

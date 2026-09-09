@@ -34,7 +34,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	cachev1alpha1 "github.com/pedromartinssouza/dapp-operator/api/v1alpha1"
+	cachev1alpha1 "github.com/pedromartinssouza/orca/api/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 

@@ -35,7 +35,7 @@ jobs:
       - name: Bump version
         id: version
         run: |
-          CURRENT=$(grep '^version:' charts/dapp-operator/Chart.yaml | awk '{print $2}')
+          CURRENT=$(grep '^version:' charts/orca/Chart.yaml | awk '{print $2}')
           MAJOR=$(echo $CURRENT | cut -d. -f1)
           MINOR=$(echo $CURRENT | cut -d. -f2)
           PATCH=$(echo $CURRENT | cut -d. -f3)
@@ -50,12 +50,12 @@ jobs:
           echo "value=${NEW}" >> $GITHUB_OUTPUT
 
           if [ "${{ steps.bump.outputs.type }}" != "none" ]; then
-            sed -i "s/^version: .*/version: ${NEW}/" charts/dapp-operator/Chart.yaml
-            sed -i "s/^appVersion: .*/appVersion: \"${NEW}\"/" charts/dapp-operator/Chart.yaml
+            sed -i "s/^version: .*/version: ${NEW}/" charts/orca/Chart.yaml
+            sed -i "s/^appVersion: .*/appVersion: \"${NEW}\"/" charts/orca/Chart.yaml
             sed -i "s/^VERSION ?= .*/VERSION ?= ${NEW}/" Makefile
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add charts/dapp-operator/Chart.yaml Makefile
+            git add charts/orca/Chart.yaml Makefile
             git commit -m "chore: bump version to ${NEW} [skip ci]"
             git push
           fi
@@ -71,7 +71,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/pedromartinssouza/dapp-operator
+          images: ghcr.io/pedromartinssouza/orca
           tags: |
             type=raw,value=${{ steps.version.outputs.value }}
             type=raw,value=latest
@@ -85,12 +85,12 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
       - name: Package Helm chart
-        run: helm package charts/dapp-operator charts/dapp-sample-app --destination /tmp/helm-charts
+        run: helm package charts/orca charts/dapp-sample-app --destination /tmp/helm-charts
 
       - name: Push Helm charts to GHCR
         run: |
           helm registry login ghcr.io --username ${{ github.actor }} --password ${{ secrets.GITHUB_TOKEN }}
-          helm push /tmp/helm-charts/dapp-operator-*.tgz oci://ghcr.io/pedromartinssouza/charts
+          helm push /tmp/helm-charts/orca-*.tgz oci://ghcr.io/pedromartinssouza/charts
           helm push /tmp/helm-charts/dapp-sample-app-*.tgz oci://ghcr.io/pedromartinssouza/charts
 
       - name: Build and push sample app image

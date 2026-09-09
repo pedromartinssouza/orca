@@ -28,8 +28,8 @@ BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 # This variable is used to construct full image tags for bundle and catalog images.
 #
 # For example, running 'make bundle-build bundle-push catalog-build catalog-push' will build and push both
-# dapp-operator.com/dapp-operator-bundle:$VERSION and dapp-operator.com/dapp-operator-catalog:$VERSION.
-IMAGE_TAG_BASE ?= dapp-operator.com/dapp-operator
+# orca.com/orca-bundle:$VERSION and orca.com/orca-catalog:$VERSION.
+IMAGE_TAG_BASE ?= orca.com/orca
 
 # BUNDLE_IMG defines the image:tag used for the bundle.
 # You can use it as an arg. (E.g make bundle-build BUNDLE_IMG=<some-registry>/<project-name-bundle>:<tag>)
@@ -116,7 +116,7 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
 # CertManager is installed by default; skip with:
 # - CERT_MANAGER_INSTALL_SKIP=true
-KIND_CLUSTER ?= dapp-operator-test-e2e
+KIND_CLUSTER ?= orca-test-e2e
 
 .PHONY: setup-test-e2e
 setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
@@ -185,10 +185,10 @@ PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 docker-buildx: ## Build and push docker image for the manager for cross-platform support
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
-	- $(CONTAINER_TOOL) buildx create --name dapp-operator-builder
-	$(CONTAINER_TOOL) buildx use dapp-operator-builder
+	- $(CONTAINER_TOOL) buildx create --name orca-builder
+	$(CONTAINER_TOOL) buildx use orca-builder
 	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
-	- $(CONTAINER_TOOL) buildx rm dapp-operator-builder
+	- $(CONTAINER_TOOL) buildx rm orca-builder
 	rm Dockerfile.cross
 
 .PHONY: build-installer
@@ -199,12 +199,12 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 
 .PHONY: helm-sync-crd
 helm-sync-crd: manifests ## Copy the generated CRD into the Helm chart crds/ directory.
-	cp config/crd/bases/cache.dapp-operator.com_dapps.yaml charts/dapp-operator/crds/
+	cp config/crd/bases/cache.orca.com_dapps.yaml charts/orca/crds/
 
 .PHONY: helm-package
 helm-package: helm-sync-crd ## Package the Helm chart into dist/. Requires helm on PATH.
 	mkdir -p dist
-	helm package charts/dapp-operator --destination dist/
+	helm package charts/orca --destination dist/
 
 ##@ Deployment
 

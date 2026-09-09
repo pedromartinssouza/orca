@@ -1,0 +1,33 @@
+====================================================
+  dapp-operator Validation Report
+  2026-06-22T22:10:13
+====================================================
+
+TTD — Time to Detect (ms)
+  Runs:   10
+  Min:    263ms
+  Max:    279ms
+  Mean:   270.8ms
+  Median: 270.5ms
+  StdDev: 5.1ms
+  Raw:    [271, 263, 265, 279, 271, 278, 274, 269, 270, 268]
+
+RTO — Recovery Time Objective (ms)
+  Runs:   10
+  Min:    6491ms
+  Max:    8595ms
+  Mean:   7957.8ms
+  Median: 8576.5ms
+  StdDev: 1002.8ms
+  Raw:    [6496, 8581, 6527, 8582, 8577, 8573, 8595, 6491, 8580, 8576]
+
+HPA — Scale-out Latency (ms)
+  Runs:   5
+  Min:    39815ms
+  Max:    41126ms
+  Mean:   40760.2ms
+  Median: 40972ms
+  StdDev: 535.7ms
+  Raw:    [40972, 39815, 40880, 41126, 41008]
+
+====================================================

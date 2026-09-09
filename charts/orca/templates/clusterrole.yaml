@@ -1,12 +1,12 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "dapp-operator.fullname" . }}-manager
+  name: {{ include "orca.fullname" . }}-manager
   labels:
-    {{- include "dapp-operator.labels" . | nindent 4 }}
+    {{- include "orca.labels" . | nindent 4 }}
 rules:
 - apiGroups:
-  - cache.dapp-operator.com
+  - cache.orca.com
   resources:
   - dapps
   verbs:
@@ -18,13 +18,13 @@ rules:
   - update
   - watch
 - apiGroups:
-  - cache.dapp-operator.com
+  - cache.orca.com
   resources:
   - dapps/finalizers
   verbs:
   - update
 - apiGroups:
-  - cache.dapp-operator.com
+  - cache.orca.com
   resources:
   - dapps/status
   verbs:

@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	cachev1alpha1 "github.com/pedromartinssouza/dapp-operator/api/v1alpha1"
+	cachev1alpha1 "github.com/pedromartinssouza/orca/api/v1alpha1"
 )
 
 var _ = Describe("Dapp Controller", func() {
