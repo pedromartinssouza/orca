@@ -1,10 +1,10 @@
 orca {{ .Chart.AppVersion }} has been installed in namespace {{ .Release.Namespace }}.
 
-The operator watches for Dapp resources cluster-wide. To install a dApp:
+The operator watches for DappManifest resources cluster-wide. To install a dApp:
 
   kubectl apply -f - <<EOF
   apiVersion: cache.orca.com/v1alpha1
-  kind: Dapp
+  kind: DappManifest
   metadata:
     name: my-dapp
     namespace: {{ .Release.Namespace }}
@@ -20,9 +20,9 @@ The operator watches for Dapp resources cluster-wide. To install a dApp:
 
 Check status:
 
-  kubectl get dapp my-dapp -n {{ .Release.Namespace }}
+  kubectl get dappmanifest my-dapp -n {{ .Release.Namespace }}
 
 NOTE: CRDs are not updated automatically on `helm upgrade`. If the CRD schema
 changes in a new release, apply the updated CRD manually before upgrading:
 
-  kubectl apply -f https://raw.githubusercontent.com/pedromartinssouza/orca/main/config/crd/bases/cache.orca.com_dapps.yaml
+  kubectl apply -f https://raw.githubusercontent.com/pedromartinssouza/orca/main/config/crd/bases/cache.orca.com_dappmanifests.yaml
