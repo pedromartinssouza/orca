@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/logo.jpg" width="180" alt="orca logo" />
+</p>
+
 # orca
 // TODO(user): Add simple overview of use/purpose
 
