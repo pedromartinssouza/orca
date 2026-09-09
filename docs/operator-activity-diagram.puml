@@ -6,15 +6,15 @@ skinparam ArrowColor #333333
 skinparam ActivityFontSize 13
 skinparam DiamondFontSize 12
 
-title Dapp Operator — Reconciliation Loop
+title ORCA — Reconciliation Loop
 
 start
 
-:Reconciliation triggered\n(Dapp CR event or owned resource change);
+:Reconciliation triggered\n(DappManifest event or owned resource change);
 
-:Fetch Dapp CR from cluster;
+:Fetch DappManifest from cluster;
 
-if (Dapp CR found?) then (no)
+if (DappManifest found?) then (no)
   :Discard event\n(resource already deleted);
   stop
 else (yes)
@@ -25,7 +25,7 @@ partition "Chart Repository Phase" {
 
   if (Chart Repository reconciled?) then (no)
     :Set Ready = False\n[reason: ChartRepositoryFailed];
-    :Update Dapp CR status;
+    :Update DappManifest status;
     :Return error → requeue;
     stop
   else (yes)
@@ -39,7 +39,7 @@ partition "Chart Release Phase" {
 
   if (Chart Release reconciled?) then (no)
     :Set Ready = False\n[reason: ChartReleaseFailed];
-    :Update Dapp CR status;
+    :Update DappManifest status;
     :Return error → requeue;
     stop
   else (yes)
@@ -55,11 +55,11 @@ partition "Installation Status Sync" {
   if (Chart Release has a status?) then (no)
     :Set Installed = False\n[reason: Pending];
   else (yes)
-    :Mirror Chart Release status\nas the Installed condition\non the Dapp CR;
+    :Mirror Chart Release status\nas the Installed condition\non the DappManifest;
   endif
 }
 
-:Update Dapp CR status;
+:Update DappManifest status;
 
 if (Installed = True?) then (no)
   :Requeue after 10 s\n(await deployment completion);

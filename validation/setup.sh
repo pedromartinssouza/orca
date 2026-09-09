@@ -13,16 +13,16 @@ check_prerequisites() {
     exit 1
   fi
 
-  if ! kubectl get dapp "$DAPP_NAME" -n "$OPERATOR_NS" &>/dev/null; then
-    echo "ERROR: Dapp '$DAPP_NAME' not found in namespace '$OPERATOR_NS'." >&2
+  if ! kubectl get dappmanifest "$DAPP_NAME" -n "$OPERATOR_NS" &>/dev/null; then
+    echo "ERROR: DappManifest '$DAPP_NAME' not found in namespace '$OPERATOR_NS'." >&2
     echo "Apply it first: kubectl apply -f validation/dapp-sample.yaml" >&2
     exit 1
   fi
 
-  READY=$(kubectl get dapp "$DAPP_NAME" -n "$OPERATOR_NS" \
+  READY=$(kubectl get dappmanifest "$DAPP_NAME" -n "$OPERATOR_NS" \
     -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
   if [ "$READY" != "True" ]; then
-    echo "ERROR: Dapp '$DAPP_NAME' is not Ready (status: ${READY:-unknown})." >&2
+    echo "ERROR: DappManifest '$DAPP_NAME' is not Ready (status: ${READY:-unknown})." >&2
     exit 1
   fi
 
@@ -32,5 +32,5 @@ check_prerequisites() {
     exit 1
   fi
 
-  echo "Baseline OK — Dapp is Ready and pods are running."
+  echo "Baseline OK — DappManifest is Ready and pods are running."
 }

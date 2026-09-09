@@ -1,5 +1,5 @@
-@startuml dapp-crd-class-diagram
-title Dapp CRD — cache.orca.com/v1alpha1
+@startuml dappmanifest-crd-class-diagram
+title DappManifest CRD — cache.orca.com/v1alpha1
 
 skinparam classAttributeIconSize 0
 skinparam class {
@@ -8,12 +8,12 @@ skinparam class {
     ArrowColor Black
 }
 
-class Dapp {
+class DappManifest {
     + apiVersion : string
     + kind : string
 }
 
-class DappSpec {
+class DappManifestSpec {
     + dappName : string
     + namespace : string
     + nodeSelector : map[string]string
@@ -34,7 +34,7 @@ class Toleration {
     + tolerationSeconds : int64
 }
 
-class DappStatus {
+class DappManifestStatus {
     + helmReleaseRef : string
     + helmRepositoryRef : string
 }
@@ -48,13 +48,13 @@ class Condition {
     + observedGeneration : int64
 }
 
-Dapp *-- "1" DappSpec : spec
-Dapp *-- "1" DappStatus : status
-DappSpec *-- "0..1" HelmSpec : helm
-DappSpec *-- "0..*" Toleration : tolerations
-DappStatus *-- "0..*" Condition : conditions
+DappManifest *-- "1" DappManifestSpec : spec
+DappManifest *-- "1" DappManifestStatus : status
+DappManifestSpec *-- "0..1" HelmSpec : helm
+DappManifestSpec *-- "0..*" Toleration : tolerations
+DappManifestStatus *-- "0..*" Condition : conditions
 
-note top of Dapp
+note top of DappManifest
   Group: cache.orca.com
   Version: v1alpha1
   Scope: Namespaced

@@ -1,4 +1,4 @@
 ## Append samples of your project ##
 resources:
-- cache_v1alpha1_dapp.yaml
+- cache_v1alpha1_dappmanifest.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

@@ -1,5 +1,5 @@
 apiVersion: cache.orca.com/v1alpha1
-kind: Dapp
+kind: DappManifest
 metadata:
   name: dapp-sample
   namespace: orca-system

@@ -24,8 +24,8 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// DappSpec defines the desired state of Dapp.
-type DappSpec struct {
+// DappManifestSpec defines the desired state of DappManifest.
+type DappManifestSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
@@ -43,8 +43,8 @@ type HelmSpec struct {
 	RepoURL     string `json:"repoURL,omitempty"`
 }
 
-// DappStatus defines the observed state of Dapp.
-type DappStatus struct {
+// DappManifestStatus defines the observed state of DappManifest.
+type DappManifestStatus struct {
 	Conditions        []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 	HelmRepositoryRef string             `json:"helmRepositoryRef,omitempty"`
 	HelmReleaseRef    string             `json:"helmReleaseRef,omitempty"`
@@ -56,24 +56,24 @@ type DappStatus struct {
 // +kubebuilder:printcolumn:name="Installed",type="string",JSONPath=".status.conditions[?(@.type=='Installed')].status"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
-// Dapp is the Schema for the dapps API.
-type Dapp struct {
+// DappManifest is the Schema for the dappmanifests API.
+type DappManifest struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   DappSpec   `json:"spec,omitempty"`
-	Status DappStatus `json:"status,omitempty"`
+	Spec   DappManifestSpec   `json:"spec,omitempty"`
+	Status DappManifestStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// DappList contains a list of Dapp.
-type DappList struct {
+// DappManifestList contains a list of DappManifest.
+type DappManifestList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []Dapp `json:"items"`
+	Items           []DappManifest `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&Dapp{}, &DappList{})
+	SchemeBuilder.Register(&DappManifest{}, &DappManifestList{})
 }

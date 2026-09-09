@@ -11,12 +11,12 @@ metadata:
   labels:
     app.kubernetes.io/name: orca
     app.kubernetes.io/managed-by: kustomize
-  name: dapp-viewer-role
+  name: dappmanifest-viewer-role
 rules:
 - apiGroups:
   - cache.orca.com
   resources:
-  - dapps
+  - dappmanifests
   verbs:
   - get
   - list
@@ -24,6 +24,6 @@ rules:
 - apiGroups:
   - cache.orca.com
   resources:
-  - dapps/status
+  - dappmanifests/status
   verbs:
   - get

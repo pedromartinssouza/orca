@@ -199,7 +199,7 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 
 .PHONY: helm-sync-crd
 helm-sync-crd: manifests ## Copy the generated CRD into the Helm chart crds/ directory.
-	cp config/crd/bases/cache.orca.com_dapps.yaml charts/orca/crds/
+	cp config/crd/bases/cache.orca.com_dappmanifests.yaml charts/orca/crds/
 
 .PHONY: helm-package
 helm-package: helm-sync-crd ## Package the Helm chart into dist/. Requires helm on PATH.

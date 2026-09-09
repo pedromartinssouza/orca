@@ -40,62 +40,62 @@ import (
 	cachev1alpha1 "github.com/pedromartinssouza/orca/api/v1alpha1"
 )
 
-// DappReconciler reconciles a Dapp object
-type DappReconciler struct {
+// DappManifestReconciler reconciles a DappManifest object
+type DappManifestReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=cache.orca.com,resources=dapps,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=cache.orca.com,resources=dapps/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=cache.orca.com,resources=dapps/finalizers,verbs=update
+// +kubebuilder:rbac:groups=cache.orca.com,resources=dappmanifests,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=cache.orca.com,resources=dappmanifests/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=cache.orca.com,resources=dappmanifests/finalizers,verbs=update
 // +kubebuilder:rbac:groups=source.toolkit.fluxcd.io,resources=helmrepositories,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=helm.toolkit.fluxcd.io,resources=helmreleases,verbs=get;list;watch;create;update;patch;delete
 
-func (r *DappReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *DappManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	dapp := &cachev1alpha1.Dapp{}
-	if err := r.Get(ctx, req.NamespacedName, dapp); err != nil {
+	dappManifest := &cachev1alpha1.DappManifest{}
+	if err := r.Get(ctx, req.NamespacedName, dappManifest); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	log.Info("reconciling dapp", "name", req.NamespacedName)
+	log.Info("reconciling dappmanifest", "name", req.NamespacedName)
 
-	if err := r.reconcileHelmRepository(ctx, dapp); err != nil {
+	if err := r.reconcileHelmRepository(ctx, dappManifest); err != nil {
 		if apierrors.IsConflict(err) {
 			return ctrl.Result{Requeue: true}, nil
 		}
 		log.Error(err, "failed to reconcile HelmRepository")
-		r.setReadyCondition(dapp, metav1.ConditionFalse, "HelmRepositoryFailed", err.Error())
-		_ = r.Status().Update(ctx, dapp)
+		r.setReadyCondition(dappManifest, metav1.ConditionFalse, "HelmRepositoryFailed", err.Error())
+		_ = r.Status().Update(ctx, dappManifest)
 		return ctrl.Result{}, err
 	}
 
-	if err := r.reconcileHelmRelease(ctx, dapp); err != nil {
+	if err := r.reconcileHelmRelease(ctx, dappManifest); err != nil {
 		if apierrors.IsConflict(err) {
 			return ctrl.Result{Requeue: true}, nil
 		}
 		log.Error(err, "failed to reconcile HelmRelease")
-		r.setReadyCondition(dapp, metav1.ConditionFalse, "HelmReleaseFailed", err.Error())
-		_ = r.Status().Update(ctx, dapp)
+		r.setReadyCondition(dappManifest, metav1.ConditionFalse, "HelmReleaseFailed", err.Error())
+		_ = r.Status().Update(ctx, dappManifest)
 		return ctrl.Result{}, err
 	}
 
-	helmRepoName := helmRepositoryName(dapp)
-	r.setReadyCondition(dapp, metav1.ConditionTrue, "Reconciled", "HelmRepository and HelmRelease are configured")
-	dapp.Status.HelmRepositoryRef = fmt.Sprintf("%s/%s", dapp.Namespace, helmRepoName)
-	dapp.Status.HelmReleaseRef = fmt.Sprintf("%s/%s", dapp.Namespace, dapp.Name)
+	helmRepoName := helmRepositoryName(dappManifest)
+	r.setReadyCondition(dappManifest, metav1.ConditionTrue, "Reconciled", "HelmRepository and HelmRelease are configured")
+	dappManifest.Status.HelmRepositoryRef = fmt.Sprintf("%s/%s", dappManifest.Namespace, helmRepoName)
+	dappManifest.Status.HelmReleaseRef = fmt.Sprintf("%s/%s", dappManifest.Namespace, dappManifest.Name)
 
-	r.syncInstalledCondition(ctx, dapp)
+	r.syncInstalledCondition(ctx, dappManifest)
 
-	if err := r.Status().Update(ctx, dapp); err != nil {
+	if err := r.Status().Update(ctx, dappManifest); err != nil {
 		if apierrors.IsConflict(err) {
 			return ctrl.Result{Requeue: true}, nil
 		}
 		return ctrl.Result{}, err
 	}
 
-	installed := apimeta.FindStatusCondition(dapp.Status.Conditions, "Installed")
+	installed := apimeta.FindStatusCondition(dappManifest.Status.Conditions, "Installed")
 	if installed == nil || installed.Status != metav1.ConditionTrue {
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
@@ -103,40 +103,40 @@ func (r *DappReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	return ctrl.Result{}, nil
 }
 
-func (r *DappReconciler) reconcileHelmRepository(ctx context.Context, dapp *cachev1alpha1.Dapp) error {
+func (r *DappManifestReconciler) reconcileHelmRepository(ctx context.Context, dappManifest *cachev1alpha1.DappManifest) error {
 	helmRepo := &sourcev1.HelmRepository{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      helmRepositoryName(dapp),
-			Namespace: dapp.Namespace,
+			Name:      helmRepositoryName(dappManifest),
+			Namespace: dappManifest.Namespace,
 		},
 	}
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, helmRepo, func() error {
 		spec := sourcev1.HelmRepositorySpec{
-			URL:      dapp.Spec.Helm.RepoURL,
+			URL:      dappManifest.Spec.Helm.RepoURL,
 			Interval: metav1.Duration{Duration: time.Minute},
 		}
-		if strings.HasPrefix(dapp.Spec.Helm.RepoURL, "oci://") {
+		if strings.HasPrefix(dappManifest.Spec.Helm.RepoURL, "oci://") {
 			spec.Type = "oci"
 		}
 		helmRepo.Spec = spec
-		return ctrl.SetControllerReference(dapp, helmRepo, r.Scheme)
+		return ctrl.SetControllerReference(dappManifest, helmRepo, r.Scheme)
 	})
 	return err
 }
 
-func (r *DappReconciler) reconcileHelmRelease(ctx context.Context, dapp *cachev1alpha1.Dapp) error {
+func (r *DappManifestReconciler) reconcileHelmRelease(ctx context.Context, dappManifest *cachev1alpha1.DappManifest) error {
 	helmRelease := &helmv2.HelmRelease{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      dapp.Name,
-			Namespace: dapp.Namespace,
+			Name:      dappManifest.Name,
+			Namespace: dappManifest.Namespace,
 		},
 	}
 
-	helmRepoName := helmRepositoryName(dapp)
+	helmRepoName := helmRepositoryName(dappManifest)
 
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, helmRelease, func() error {
-		postRenderers, err := buildSchedulingPostRenderer(dapp)
+		postRenderers, err := buildSchedulingPostRenderer(dappManifest)
 		if err != nil {
 			return err
 		}
@@ -144,8 +144,8 @@ func (r *DappReconciler) reconcileHelmRelease(ctx context.Context, dapp *cachev1
 			Interval: metav1.Duration{Duration: 5 * time.Minute},
 			Chart: &helmv2.HelmChartTemplate{
 				Spec: helmv2.HelmChartTemplateSpec{
-					Chart:   dapp.Spec.Helm.ChartName,
-					Version: dapp.Spec.Helm.Version,
+					Chart:   dappManifest.Spec.Helm.ChartName,
+					Version: dappManifest.Spec.Helm.Version,
 					SourceRef: helmv2.CrossNamespaceObjectReference{
 						Kind: sourcev1.HelmRepositoryKind,
 						Name: helmRepoName,
@@ -154,28 +154,28 @@ func (r *DappReconciler) reconcileHelmRelease(ctx context.Context, dapp *cachev1
 			},
 			PostRenderers: postRenderers,
 		}
-		if dapp.Spec.Helm.ReleaseName != "" {
-			helmRelease.Spec.ReleaseName = dapp.Spec.Helm.ReleaseName
+		if dappManifest.Spec.Helm.ReleaseName != "" {
+			helmRelease.Spec.ReleaseName = dappManifest.Spec.Helm.ReleaseName
 		}
-		if dapp.Spec.Namespace != "" {
-			helmRelease.Spec.TargetNamespace = dapp.Spec.Namespace
+		if dappManifest.Spec.Namespace != "" {
+			helmRelease.Spec.TargetNamespace = dappManifest.Spec.Namespace
 		}
-		return ctrl.SetControllerReference(dapp, helmRelease, r.Scheme)
+		return ctrl.SetControllerReference(dappManifest, helmRelease, r.Scheme)
 	})
 	return err
 }
 
-func buildSchedulingPostRenderer(dapp *cachev1alpha1.Dapp) ([]helmv2.PostRenderer, error) {
-	if len(dapp.Spec.NodeSelector) == 0 && len(dapp.Spec.Tolerations) == 0 {
+func buildSchedulingPostRenderer(dappManifest *cachev1alpha1.DappManifest) ([]helmv2.PostRenderer, error) {
+	if len(dappManifest.Spec.NodeSelector) == 0 && len(dappManifest.Spec.Tolerations) == 0 {
 		return nil, nil
 	}
 
 	podSpec := map[string]interface{}{}
-	if len(dapp.Spec.NodeSelector) > 0 {
-		podSpec["nodeSelector"] = dapp.Spec.NodeSelector
+	if len(dappManifest.Spec.NodeSelector) > 0 {
+		podSpec["nodeSelector"] = dappManifest.Spec.NodeSelector
 	}
-	if len(dapp.Spec.Tolerations) > 0 {
-		podSpec["tolerations"] = dapp.Spec.Tolerations
+	if len(dappManifest.Spec.Tolerations) > 0 {
+		podSpec["tolerations"] = dappManifest.Spec.Tolerations
 	}
 
 	workloads := []struct{ apiVersion, kind string }{
@@ -210,46 +210,46 @@ func buildSchedulingPostRenderer(dapp *cachev1alpha1.Dapp) ([]helmv2.PostRendere
 	return []helmv2.PostRenderer{{Kustomize: &helmv2.Kustomize{Patches: patches}}}, nil
 }
 
-func (r *DappReconciler) setReadyCondition(dapp *cachev1alpha1.Dapp, status metav1.ConditionStatus, reason, message string) {
-	r.setCondition(dapp, "Ready", status, reason, message)
+func (r *DappManifestReconciler) setReadyCondition(dappManifest *cachev1alpha1.DappManifest, status metav1.ConditionStatus, reason, message string) {
+	r.setCondition(dappManifest, "Ready", status, reason, message)
 }
 
-func (r *DappReconciler) setCondition(dapp *cachev1alpha1.Dapp, condType string, status metav1.ConditionStatus, reason, message string) {
-	apimeta.SetStatusCondition(&dapp.Status.Conditions, metav1.Condition{
+func (r *DappManifestReconciler) setCondition(dappManifest *cachev1alpha1.DappManifest, condType string, status metav1.ConditionStatus, reason, message string) {
+	apimeta.SetStatusCondition(&dappManifest.Status.Conditions, metav1.Condition{
 		Type:               condType,
 		Status:             status,
 		Reason:             reason,
 		Message:            message,
-		ObservedGeneration: dapp.Generation,
+		ObservedGeneration: dappManifest.Generation,
 	})
 }
 
-func (r *DappReconciler) syncInstalledCondition(ctx context.Context, dapp *cachev1alpha1.Dapp) {
+func (r *DappManifestReconciler) syncInstalledCondition(ctx context.Context, dappManifest *cachev1alpha1.DappManifest) {
 	helmRelease := &helmv2.HelmRelease{}
-	if err := r.Get(ctx, types.NamespacedName{Name: dapp.Name, Namespace: dapp.Namespace}, helmRelease); err != nil {
-		r.setCondition(dapp, "Installed", metav1.ConditionFalse, "HelmReleaseNotFound", err.Error())
+	if err := r.Get(ctx, types.NamespacedName{Name: dappManifest.Name, Namespace: dappManifest.Namespace}, helmRelease); err != nil {
+		r.setCondition(dappManifest, "Installed", metav1.ConditionFalse, "HelmReleaseNotFound", err.Error())
 		return
 	}
 
 	hrReady := apimeta.FindStatusCondition(helmRelease.Status.Conditions, "Ready")
 	if hrReady == nil {
-		r.setCondition(dapp, "Installed", metav1.ConditionFalse, "Pending", "Waiting for Flux to install the chart")
+		r.setCondition(dappManifest, "Installed", metav1.ConditionFalse, "Pending", "Waiting for Flux to install the chart")
 		return
 	}
 
-	r.setCondition(dapp, "Installed", hrReady.Status, hrReady.Reason, hrReady.Message)
+	r.setCondition(dappManifest, "Installed", hrReady.Status, hrReady.Reason, hrReady.Message)
 }
 
-func helmRepositoryName(dapp *cachev1alpha1.Dapp) string {
-	return dapp.Name + "-helmrepo"
+func helmRepositoryName(dappManifest *cachev1alpha1.DappManifest) string {
+	return dappManifest.Name + "-helmrepo"
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *DappReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *DappManifestReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&cachev1alpha1.Dapp{}).
+		For(&cachev1alpha1.DappManifest{}).
 		Owns(&sourcev1.HelmRepository{}).
 		Owns(&helmv2.HelmRelease{}).
-		Named("dapp").
+		Named("dappmanifest").
 		Complete(r)
 }

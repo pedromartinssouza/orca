@@ -206,11 +206,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.DappReconciler{
+	if err := (&controller.DappManifestReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Dapp")
+		setupLog.Error(err, "unable to create controller", "controller", "DappManifest")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
