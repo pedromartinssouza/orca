@@ -70,6 +70,97 @@ make uninstall
 make undeploy
 ```
 
+## Testbed: Full Environment Setup
+
+`testbed/` provisions the complete environment ORCA is validated
+against: a 4-node Kind cluster, a real Near-RT RIC (via the official
+`ric-dep` installer), FluxCD, ORCA itself, a minimal Non-RT RIC (Policy
+Management Service, talking real A1 to the Near-RT RIC), and a sample
+dApp exercising the full LCM path. It's built to be torn down and
+rebuilt from nothing as many times as needed, and has been verified end
+to end by doing exactly that. See [`testbed/README.md`](testbed/README.md)
+for the full rationale (why the Non-RT RIC slice is PMS-only, provenance
+of the pinned versions/patches, and issues found and fixed along the way).
+
+**Additional prerequisites** beyond the ones above: [`kind`](https://kind.sigs.k8s.io/),
+[`helm`](https://helm.sh/), and the [`flux` CLI](https://fluxcd.io/flux/cmd/).
+
+### Step by step
+
+1. **Create the cluster:**
+   ```sh
+   cd testbed
+   ./01-create-cluster.sh
+   ```
+   Creates the 4-node Kind cluster (`kind-setup/kind-config.yaml`):
+   control-plane, a `components` worker, and tainted `o-du`/`o-cu`
+   workers for scheduling dApps onto.
+
+2. **Install the Near-RT RIC platform:**
+   ```sh
+   ./02-install-near-rt-ric.sh
+   ```
+   Clones `it/dep` + the `ric-dep` submodule at pinned commits, applies
+   the two local patches in `patches/ric-dep-helm3-only.patch`, and runs
+   the official installer. Takes a few minutes (image pulls); waits for
+   all `ricplt`/`ricinfra` pods to become Ready.
+
+3. **Install FluxCD:**
+   ```sh
+   ./03-install-fluxcd.sh
+   ```
+   Plain `flux install` — no Git source. ORCA drives `HelmRelease`/
+   `HelmRepository` objects directly; Flux just reconciles them.
+
+4. **Install ORCA:**
+   ```sh
+   ./04-install-orca.sh
+   ```
+   Installs the operator from its published OCI Helm chart
+   (`oci://ghcr.io/pedromartinssouza/charts/orca`) into `orca-system`.
+
+5. **Install the Non-RT RIC (PMS):**
+   ```sh
+   ./05-install-non-rt-ric.sh
+   ```
+   Deploys `nonrtric-common` + `policymanagementservice` into a new
+   `nonrtric` namespace, configured via `values/pms-values-override.yaml`
+   to talk directly to the Near-RT RIC's `a1mediator` (no ONAP).
+
+6. **Deploy the sample dApp:**
+   ```sh
+   ./06-deploy-sample-dapp.sh
+   ```
+   Applies a sample `DappManifest` CR and waits for it to reach
+   `Ready`/`Installed`, exercising the full ORCA → FluxCD → HelmRelease →
+   pod path.
+
+Or run all six in order in one go:
+
+```sh
+cd testbed
+./deploy-all.sh
+```
+
+### Verifying it worked
+
+```sh
+for ns in ricplt ricinfra orca-system nonrtric dapp-sample-system; do
+  kubectl get pods -n "$ns"
+done
+kubectl get dappmanifest dapp-sample -n orca-system      # READY=True, INSTALLED=True
+kubectl exec -n nonrtric policymanagementservice-0 -- \
+  wget -qO- http://localhost:8081/a1-policy/v2/rics       # near-rt-ric-1, state AVAILABLE
+```
+
+### Tearing down
+
+```sh
+cd testbed
+./teardown.sh            # deletes the Kind cluster
+./teardown.sh --clean     # also wipes cached clones/charts in testbed/.build/
+```
+
 ## Project Distribution
 
 Following the options to release and provide this solution to the users.
