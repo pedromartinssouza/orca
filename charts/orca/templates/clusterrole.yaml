@@ -8,7 +8,7 @@ rules:
 - apiGroups:
   - cache.orca.com
   resources:
-  - dapps
+  - dappmanifests
   verbs:
   - create
   - delete
@@ -20,13 +20,13 @@ rules:
 - apiGroups:
   - cache.orca.com
   resources:
-  - dapps/finalizers
+  - dappmanifests/finalizers
   verbs:
   - update
 - apiGroups:
   - cache.orca.com
   resources:
-  - dapps/status
+  - dappmanifests/status
   verbs:
   - get
   - patch
