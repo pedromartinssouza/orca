@@ -1,0 +1,38 @@
+--- a/bin/install
++++ b/bin/install
+@@ -94,12 +94,7 @@ if [ -z "$OVERRIDEYAML" ];then
+     exit 1
+ fi
+
+-if [ -z $IS_HELM3 ]
+-then
+-  HAS_COMMON_PACKAGE=$(helm search local/ric-common | grep ric-common)
+-else
+-  HAS_COMMON_PACKAGE=$(helm search repo local/ric-common | grep ric-common)
+-fi
++HAS_COMMON_PACKAGE=$(helm search repo local/ric-common | grep ric-common)
+
+ if [ -z "$HAS_COMMON_PACKAGE" ];then
+     echo "****************************************************************************************************************"
+@@ -310,10 +305,6 @@ fi
+ for component in $COMPONENTS; do
+     helm dep build $DIR/../helm/$component
+     COMPONENT="${RELEASE_PREFIX}-$component"
+-    if [ -z $IS_HELM3 ]
+-    then
+-      COMPONENT=" --name $COMPONENT"
+-    fi
+     helm install -f $OVERRIDEYAML --namespace "${PLTNAMESPACE:-ricplt}" $COMPONENT $DIR/../helm/$component
+     sleep 8
+ done
+--- a/bin/install_common_templates_to_helm.sh
++++ b/bin/install_common_templates_to_helm.sh
+@@ -17,7 +17,7 @@
+
+ echo "Installing servecm (Chart Manager) and common templates to helm3"
+
+-helm plugin install https://github.com/jdolitsky/helm-servecm
++helm plugin install https://github.com/jdolitsky/helm-servecm --verify=false
+ eval $(helm env |grep HELM_REPOSITORY_CACHE)
+ echo ${HELM_REPOSITORY_CACHE}
+

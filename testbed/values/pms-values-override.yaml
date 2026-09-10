@@ -1,0 +1,50 @@
+# Overrides for the policymanagementservice chart's default values.yaml.
+#
+# The chart ships pointed at example infrastructure that doesn't apply here:
+# simulated RICs (a1-sim-*) behind an SDNC controller in an `onap` namespace,
+# and a DMaaP message router (also `onap`) for event streaming.
+#
+# This testbed has a real Near-RT RIC (service-ricplt-a1mediator-http.ricplt,
+# port 10000) that speaks A1-P directly, so the SDNC controller indirection
+# and DMaaP streaming are both dropped rather than pointed at infrastructure
+# we don't run (no ONAP, per the "single Kubernetes cluster, minimal
+# components" premise).
+#
+# Chart bug worked around below: the chart's init container copies
+# application_configuration.json into the vardata PVC
+# (/var/policy-management-service), but the app's own default app.filepath
+# (application.app.filepath, below) points at
+# /opt/app/policy-agent/data/application_configuration.json, a path nothing
+# ever populates. RefreshConfigTask silently no-ops forever in that state
+# (getLastModified() on a missing file returns 0, which equals its own
+# zero-initialized "last seen" value, so it never even attempts a read --
+# confirmed by reading RefreshConfigTask.java/ConfigurationFile.java at the
+# deployed image's tag, v2.11.0). Repointing app.filepath at the path the
+# init container actually writes to fixes it without patching the chart.
+application:
+  app:
+    filepath: /var/policy-management-service/application_configuration.json
+  # To troubleshoot A1 sync behavior, temporarily add:
+  #   logging:
+  #     level:
+  #       org.onap.ccsdk.oran.a1policymanagementservice: DEBUG
+  # then `kubectl delete pod policymanagementservice-0 -n nonrtric` to pick
+  # it up (see README "Known issue" -- ConfigMap-only changes don't
+  # auto-restart the StatefulSet pod).
+
+config:
+  config:
+    controller: []
+    ric:
+    - name: near-rt-ric-1
+      baseUrl: http://service-ricplt-a1mediator-http.ricplt:10000
+      managedElementIds:
+      - o-du-1
+      - o-cu-1
+    # Helm deep-merges maps, so an empty {} here would NOT clear the
+    # chart's default ONAP dmaap_publisher/dmaap_subscriber entries --
+    # null explicitly deletes each key instead.
+    streams_publishes:
+      dmaap_publisher: null
+    streams_subscribes:
+      dmaap_subscriber: null
