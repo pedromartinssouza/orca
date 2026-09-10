@@ -113,15 +113,28 @@ history + on-disk clones), not guessed:
   `--verify=false` to the `helm-servecm` plugin install in
   `bin/install_common_templates_to_helm.sh`
 
-## Known gap
+## Verified with a real teardown/rebuild
 
-The original manual install ran `ric-dep/bin/install` and
-`install_common_templates_to_helm.sh` under `sudo`; it isn't clear whether
-that was load-bearing (e.g. for the local chartmuseum server) or
-incidental to how that shell session was set up. `02-install-near-rt-ric.sh`
-runs them without `sudo`, matching how this whole session has driven the
-live cluster successfully as the normal user. If a fresh run hits
-permission errors there, retry with `sudo -E` to preserve `KUBECONFIG`/
-`HOME` — flagging this since it hasn't been validated by an actual
-teardown/rebuild of the live cluster (that would take down the running
-80-day environment, so it wasn't done as part of writing these scripts).
+The full `01`-`06` sequence was run end to end against the live cluster
+(`kind delete cluster` + full rebuild), not just reasoned through. Findings:
+
+- `sudo` was **not** needed for the `ric-dep` install scripts (the original
+  manual setup used it; turned out to be incidental, not load-bearing). All
+  13 `ricplt`/`ricinfra` pods reached Ready within the 5-minute wait window
+  on a completely clean cluster, no image-pull-secret or permission issues.
+- The rebuild exposed a real, previously-latent ORCA bug: `dapp-sample`'s
+  `HelmRelease` failed immediately with `namespaces "dapp-sample-system"
+  not found` and then permanently stalled (helm-controller does not retry
+  a stalled release on its own). This never surfaced before because
+  `dapp-sample-system` already existed from much earlier manual work, so
+  the true first-install path had never actually been exercised. Root
+  cause and fix: [PR #5](https://github.com/pedromartinssouza/orca/pull/5)
+  (`DappManifest` reconciliation never set `install.createNamespace` on
+  the `HelmRelease` it generates). `06-deploy-sample-dapp.sh` pre-creates
+  the target namespace itself as a workaround so this script keeps
+  working against `ORCA_CHART_VERSION=0.5.0` (which predates the fix) --
+  safe to drop once that version is bumped past the fix.
+- PMS's `near-rt-ric-1` RIC came up `AVAILABLE` on the very first install
+  attempt (no restart needed) -- confirming the `pms-values-override.yaml`
+  fix is correctly baked into a fresh install, and the ConfigMap-restart
+  quirk above only bites on `helm upgrade` of an existing release.
