@@ -96,6 +96,8 @@ var _ = Describe("DappManifest Controller", func() {
 			Expect(helmRelease.Spec.Chart.Spec.SourceRef.Name).To(Equal(resourceName + "-helmrepo"))
 			Expect(helmRelease.Spec.TargetNamespace).To(Equal("test-dapp-system"))
 			Expect(helmRelease.Spec.ReleaseName).To(Equal("test-dapp"))
+			Expect(helmRelease.Spec.Install).NotTo(BeNil())
+			Expect(helmRelease.Spec.Install.CreateNamespace).To(BeTrue())
 
 			By("checking that the DappManifest status reflects Ready=True")
 			dappManifest := &cachev1alpha1.DappManifest{}

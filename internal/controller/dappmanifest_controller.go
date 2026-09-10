@@ -142,6 +142,9 @@ func (r *DappManifestReconciler) reconcileHelmRelease(ctx context.Context, dappM
 		}
 		helmRelease.Spec = helmv2.HelmReleaseSpec{
 			Interval: metav1.Duration{Duration: 5 * time.Minute},
+			Install: &helmv2.Install{
+				CreateNamespace: true,
+			},
 			Chart: &helmv2.HelmChartTemplate{
 				Spec: helmv2.HelmChartTemplateSpec{
 					Chart:   dappManifest.Spec.Helm.ChartName,
