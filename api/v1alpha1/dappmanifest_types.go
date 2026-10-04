@@ -32,6 +32,7 @@ type DappManifestSpec struct {
 	DappName     string              `json:"dappName,omitempty"`
 	Namespace    string              `json:"namespace,omitempty"`
 	Helm         HelmSpec            `json:"helm,omitempty"`
+	NodeName     string              `json:"nodeName,omitempty"`
 	NodeSelector map[string]string   `json:"nodeSelector,omitempty"`
 	Tolerations  []corev1.Toleration `json:"tolerations,omitempty"`
 }

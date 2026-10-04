@@ -169,11 +169,14 @@ func (r *DappManifestReconciler) reconcileHelmRelease(ctx context.Context, dappM
 }
 
 func buildSchedulingPostRenderer(dappManifest *cachev1alpha1.DappManifest) ([]helmv2.PostRenderer, error) {
-	if len(dappManifest.Spec.NodeSelector) == 0 && len(dappManifest.Spec.Tolerations) == 0 {
+	if dappManifest.Spec.NodeName == "" && len(dappManifest.Spec.NodeSelector) == 0 && len(dappManifest.Spec.Tolerations) == 0 {
 		return nil, nil
 	}
 
 	podSpec := map[string]interface{}{}
+	if dappManifest.Spec.NodeName != "" {
+		podSpec["nodeName"] = dappManifest.Spec.NodeName
+	}
 	if len(dappManifest.Spec.NodeSelector) > 0 {
 		podSpec["nodeSelector"] = dappManifest.Spec.NodeSelector
 	}
