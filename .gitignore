@@ -17,6 +17,9 @@ Dockerfile.cross
 # Go workspace file
 go.work
 
+# make build-installer / make helm-package output
+dist/
+
 # Kubernetes Generated files - skip generated files, except for vendored files
 !vendor/**/zz_generated.*
 
