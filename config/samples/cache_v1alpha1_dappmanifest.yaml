@@ -14,6 +14,10 @@ spec:
     chartName: podinfo
     version: ">=6.0.0"
     repoURL: https://stefanprodan.github.io/podinfo
+  # nodeName pins the dApp to one exact node (e.g. a specific O-DU
+  # instance), bypassing label-based selection entirely. Leave unset to
+  # select by label with nodeSelector instead.
+  # nodeName: orca-testbed-worker2
   nodeSelector:
     type: o-du
   tolerations:
