@@ -3,74 +3,74 @@
 </p>
 
 # orca
-// TODO(user): Add simple overview of use/purpose
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+ORCA (Operator for RAN-native Cloud Applications) is a Kubernetes Operator that manages the lifecycle of **dApps** — microservices deployed inside an O-RAN O-Cloud, co-located with a vO-CU or vO-DU for sub-10ms control loops.
 
-## Getting Started
+Today, standing up a dApp means hand-wiring Helm releases, scheduling constraints, and status checks yourself. ORCA replaces that with one declarative object: a `DappManifest` CR. ORCA turns it into a `HelmRepository` + `HelmRelease` (reconciled by FluxCD, not Helm directly), propagates scheduling to the rendered pods, and aggregates status back onto the CR as the single thing you watch.
 
-### Prerequisites
-- go version v1.24.0+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
+This is part of a UNISINOS master's dissertation on dApp Lifecycle Management in O-RAN. A planned second component, the **Gateway RAN Function**, will bridge xApp↔dApp communication over E2SM-DAPP — that part isn't built yet; this repo is the Operator.
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
+## What a DappManifest looks like
 
-```sh
-make docker-build docker-push IMG=<some-registry>/orca:tag
+```yaml
+apiVersion: cache.orca.com/v1alpha1
+kind: DappManifest
+metadata:
+  name: my-dapp
+spec:
+  namespace: my-dapp-system
+  helm:
+    chartName: my-dapp-chart
+    version: ">=1.0.0"
+    repoURL: oci://ghcr.io/you/charts
+  nodeName: o-du-worker-2      # pin to one exact node...
+  nodeSelector:                # ...or target any node of a type
+    type: o-du
+  tolerations:
+  - key: dedicated
+    operator: Equal
+    value: o-du
+    effect: NoSchedule
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
-
-**Install the CRDs into the cluster:**
+Apply it, and ORCA takes care of the rest:
 
 ```sh
-make install
+kubectl apply -f my-dapp.yaml
+kubectl get dappmanifest my-dapp   # READY=True, INSTALLED=True once live
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+## Installing ORCA
+
+ORCA ships as a Helm chart, published to GHCR on every merge to `main`:
 
 ```sh
-make deploy IMG=<some-registry>/orca:tag
+helm install orca oci://ghcr.io/pedromartinssouza/charts/orca --version 0.5.0 \
+  --namespace orca-system --create-namespace
 ```
 
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
+Check [pedromartinssouza's GHCR packages](https://github.com/pedromartinssouza?tab=packages) for the latest chart version. ORCA also needs [FluxCD's HelmController and SourceController](https://fluxcd.io/flux/installation/) running in the cluster — it creates `HelmRepository`/`HelmRelease` objects, Flux does the actual installing.
 
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
+## Local development
+
+Prerequisites: Go 1.24+, Docker, `kubectl`, access to a cluster.
 
 ```sh
-kubectl apply -k config/samples/
+make install                              # CRDs
+make run                                  # run the controller from your host
+# or, to run it in-cluster:
+make docker-build docker-push IMG=<registry>/orca:tag
+make deploy IMG=<registry>/orca:tag
 ```
-
->**NOTE**: Ensure that the samples has default values to test it out.
-
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
 
 ```sh
-kubectl delete -k config/samples/
+make test      # unit + envtest suite
+make test-e2e  # spins up its own Kind cluster
 ```
 
-**Delete the APIs(CRDs) from the cluster:**
+`make help` lists every other target.
 
-```sh
-make uninstall
-```
-
-**UnDeploy the controller from the cluster:**
-
-```sh
-make undeploy
-```
-
-## Testbed: Full Environment Setup
+## Testbed: full environment setup
 
 `testbed/` provisions the complete environment ORCA is validated
 against: a 4-node Kind cluster, a real Near-RT RIC (via the official
@@ -161,56 +161,19 @@ cd testbed
 ./teardown.sh --clean     # also wipes cached clones/charts in testbed/.build/
 ```
 
-## Project Distribution
+## Releases
 
-Following the options to release and provide this solution to the users.
-
-### By providing a bundle with all YAML files
-
-1. Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/orca:tag
-```
-
-**NOTE:** The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without its
-dependencies.
-
-2. Using the installer
-
-Users can just run 'kubectl apply -f <URL for YAML BUNDLE>' to install
-the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/orca/<tag or branch>/dist/install.yaml
-```
-
-### By providing a Helm Chart
-
-1. Build the chart using the optional helm plugin
-
-```sh
-operator-sdk edit --plugins=helm/v1-alpha
-```
-
-2. See that a chart was generated under 'dist/chart', and users
-can obtain this solution from there.
-
-**NOTE:** If you change the project, you need to update the Helm Chart
-using the same command above to sync the latest changes. Furthermore,
-if you create webhooks, you need to use the above command with
-the '--force' flag and manually ensure that any custom configuration
-previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml'
-is manually re-applied afterwards.
+Pushing to `main` with a commit message starting `feat:`, `fix:`, or
+`breaking change:` triggers `.github/workflows/publish.yml`: it bumps
+`charts/orca/Chart.yaml`, builds and pushes the manager image and both
+Helm charts (`orca` and the sample `dapp-sample-app`) to
+`ghcr.io/pedromartinssouza`. Any other commit message skips the bump
+(no release).
 
 ## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
 
-**NOTE:** Run `make help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+This is a research prototype backing a master's dissertation, not
+accepting outside contributions right now. Issues are welcome.
 
 ## License
 
@@ -227,4 +190,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
