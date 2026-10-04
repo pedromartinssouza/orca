@@ -32,18 +32,14 @@ def kubectl(*args: str, check: bool = False) -> subprocess.CompletedProcess:
 
 
 def wait_for_helmrelease_ready(timeout: int = 300) -> bool:
-    """Poll until the HelmRelease has Ready=True. Returns False on timeout."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        proc = kubectl(
-            "get", "helmrelease", DAPP_NAME,
-            "-n", OPERATOR_NS,
-            "-o", 'jsonpath={.status.conditions[?(@.type=="Ready")].status}',
-        )
-        if proc.stdout.strip() == "True":
-            return True
-        time.sleep(3)
-    return False
+    """Wait until the HelmRelease has Ready=True. Returns False on timeout."""
+    created = kubectl("wait", "helmrelease", DAPP_NAME, "-n", OPERATOR_NS,
+                       "--for=create", f"--timeout={timeout}s")
+    if created.returncode != 0:
+        return False
+    ready = kubectl("wait", "helmrelease", DAPP_NAME, "-n", OPERATOR_NS,
+                     "--for=condition=Ready", f"--timeout={timeout}s")
+    return ready.returncode == 0
 
 
 def wait_for_deployment_scaled_down(namespace: str, deploy: str, timeout: int = 120) -> bool:

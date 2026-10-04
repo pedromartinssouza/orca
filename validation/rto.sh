@@ -14,12 +14,8 @@ T1_NS=$(date +%s%N)
 kubectl delete helmrelease "$DAPP_NAME" -n "$OPERATOR_NS"
 
 echo "Waiting for HelmRelease to be recreated and chart fully installed..."
-while true; do
-  STATUS=$(kubectl get helmrelease "$DAPP_NAME" -n "$OPERATOR_NS" \
-    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
-  [ "$STATUS" = "True" ] && break
-  sleep 2
-done
+kubectl wait helmrelease "$DAPP_NAME" -n "$OPERATOR_NS" --for=create --timeout=300s
+kubectl wait helmrelease "$DAPP_NAME" -n "$OPERATOR_NS" --for=condition=Ready --timeout=300s
 
 T2_NS=$(date +%s%N)
 RTO_MS=$(( (T2_NS - T1_NS) / 1000000 ))
