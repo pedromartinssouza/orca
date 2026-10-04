@@ -4,11 +4,11 @@
 
 # orca
 
-ORCA (Operator for RAN-native Cloud Applications) is a Kubernetes Operator that manages the lifecycle of **dApps** — microservices deployed inside an O-RAN O-Cloud, co-located with a vO-CU or vO-DU for sub-10ms control loops.
+ORCA (Operator for RAN-native Cloud Applications) is a Kubernetes Operator that manages the lifecycle of **dApps**: microservices deployed inside an O-RAN O-Cloud, co-located with a vO-CU or vO-DU for sub-10ms control loops.
 
 Today, standing up a dApp means hand-wiring Helm releases, scheduling constraints, and status checks yourself. ORCA replaces that with one declarative object: a `DappManifest` CR. ORCA turns it into a `HelmRepository` + `HelmRelease` (reconciled by FluxCD, not Helm directly), propagates scheduling to the rendered pods, and aggregates status back onto the CR as the single thing you watch.
 
-This is part of a UNISINOS master's dissertation on dApp Lifecycle Management in O-RAN. A planned second component, the **Gateway RAN Function**, will bridge xApp↔dApp communication over E2SM-DAPP — that part isn't built yet; this repo is the Operator.
+This is part of a UNISINOS master's dissertation on dApp Lifecycle Management in O-RAN. A planned second component, the **Gateway RAN Function**, will bridge xApp↔dApp communication over E2SM-DAPP. That part isn't built yet; this repo is the Operator.
 
 ## What a DappManifest looks like
 
@@ -49,7 +49,7 @@ helm install orca oci://ghcr.io/pedromartinssouza/charts/orca --version 0.5.0 \
   --namespace orca-system --create-namespace
 ```
 
-Check [pedromartinssouza's GHCR packages](https://github.com/pedromartinssouza?tab=packages) for the latest chart version. ORCA also needs [FluxCD's HelmController and SourceController](https://fluxcd.io/flux/installation/) running in the cluster — it creates `HelmRepository`/`HelmRelease` objects, Flux does the actual installing.
+Check [pedromartinssouza's GHCR packages](https://github.com/pedromartinssouza?tab=packages) for the latest chart version. ORCA also needs [FluxCD's HelmController and SourceController](https://fluxcd.io/flux/installation/) running in the cluster: it creates `HelmRepository`/`HelmRelease` objects, Flux does the actual installing.
 
 ## Local development
 
@@ -109,7 +109,7 @@ of the pinned versions/patches, and issues found and fixed along the way).
    ```sh
    ./03-install-fluxcd.sh
    ```
-   Plain `flux install` — no Git source. ORCA drives `HelmRelease`/
+   Plain `flux install` (no Git source). ORCA drives `HelmRelease`/
    `HelmRepository` objects directly; Flux just reconciles them.
 
 4. **Install ORCA:**
