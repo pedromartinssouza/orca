@@ -30,13 +30,15 @@ func (r *DappManifestReconciler) ensureGateway(ctx context.Context, inv *cachev1
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, dep, func() error {
 		dep.Labels = labels
 		dep.Spec.Replicas = ptr.To(int32(1))
+		// Recreate keeps the Gateway a singleton per node during image changes.
+		dep.Spec.Strategy = appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType}
 		dep.Spec.Selector = &metav1.LabelSelector{MatchLabels: map[string]string{
-			"app.kubernetes.io/name":   "orca-gateway",
-			"orca.cache.orca.com/node": inv.Name,
+			"app.kubernetes.io/name":            "orca-gateway",
+			"orca.cache.orca.com/inventory-uid": string(inv.UID),
 		}}
 		dep.Spec.Template.Labels = map[string]string{
-			"app.kubernetes.io/name":   "orca-gateway",
-			"orca.cache.orca.com/node": inv.Name,
+			"app.kubernetes.io/name":            "orca-gateway",
+			"orca.cache.orca.com/inventory-uid": string(inv.UID),
 		}
 		dep.Spec.Template.Spec = corev1.PodSpec{
 			NodeName:           inv.Name,
@@ -55,5 +57,6 @@ func (r *DappManifestReconciler) ensureGateway(ctx context.Context, inv *cachev1
 	if err != nil {
 		return false, err
 	}
-	return dep.Status.AvailableReplicas >= 1, nil
+	return dep.Status.ObservedGeneration >= dep.Generation &&
+		dep.Status.UpdatedReplicas >= 1 && dep.Status.AvailableReplicas >= 1, nil
 }

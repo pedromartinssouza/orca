@@ -23,5 +23,3 @@ leaderElection:
 
 gateway:
   image: ghcr.io/pedromartinssouza/orca-gateway:latest
-  # Namespace of the per-node Gateway Deployments. Defaults to the release namespace.
-  namespace: ""

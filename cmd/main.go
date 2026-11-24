@@ -209,6 +209,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if gatewayImage == "" {
+		setupLog.Error(nil, "--gateway-image is required")
+		os.Exit(1)
+	}
+
 	if err := (&controller.DappManifestReconciler{
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
