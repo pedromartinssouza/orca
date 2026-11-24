@@ -62,6 +62,8 @@ spec:
                       minimum: 1
                       type: integer
                     generation:
+                      description: Generation is a rotation counter, bumped on every
+                        token rotation.
                       format: int64
                       type: integer
                     tokenHash:

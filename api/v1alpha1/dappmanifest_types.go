@@ -29,7 +29,8 @@ type DappManifestSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	DappName  string   `json:"dappName,omitempty"`
+	DappName string `json:"dappName,omitempty"`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="namespace is immutable"
 	Namespace string   `json:"namespace,omitempty"`
 	Helm      HelmSpec `json:"helm,omitempty"`
 	// +kubebuilder:validation:MinLength=1

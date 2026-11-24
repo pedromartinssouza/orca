@@ -48,6 +48,8 @@ const dappFinalizer = "cache.orca.com/dapp-inventory"
 type DappManifestReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	// APIReader reads token Secrets uncached, so cache lag never triggers a rotation.
+	APIReader client.Reader
 
 	// GatewayImage and GatewayNamespace configure the per-node Gateway Deployment.
 	GatewayImage     string
@@ -113,6 +115,9 @@ func (r *DappManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	inv, err := r.getOrCreateInventory(ctx, dm.Spec.NodeName)
+	if apierrors.IsAlreadyExists(err) {
+		return ctrl.Result{Requeue: true}, nil
+	}
 	if err != nil {
 		return fail("InventoryUpdateFailed", err)
 	}
@@ -137,8 +142,13 @@ func (r *DappManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err := r.reconcileHelmRepository(ctx, dm); err != nil {
 		return fail("HelmRepositoryFailed", err)
 	}
-	if err := r.reconcileHelmRelease(ctx, dm); err != nil {
+	secretName := tokenSecretName(dm, entry.TokenHash)
+	if err := r.reconcileHelmRelease(ctx, dm, secretName); err != nil {
 		return fail("HelmReleaseFailed", err)
+	}
+	// Only after the HelmRelease points at the new Secret, so the old pod keeps its token until rolled.
+	if err := r.pruneTokenSecrets(ctx, dm, secretName); err != nil {
+		return fail("TokenSecretCleanupFailed", err)
 	}
 
 	dm.Status.HelmRepositoryRef = fmt.Sprintf("%s/%s", dm.Namespace, helmRepositoryName(dm))
@@ -196,7 +206,7 @@ func (r *DappManifestReconciler) reconcileHelmRepository(ctx context.Context, da
 	return err
 }
 
-func (r *DappManifestReconciler) reconcileHelmRelease(ctx context.Context, dappManifest *cachev1alpha1.DappManifest) error {
+func (r *DappManifestReconciler) reconcileHelmRelease(ctx context.Context, dappManifest *cachev1alpha1.DappManifest, tokenSecret string) error {
 	helmRelease := &helmv2.HelmRelease{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      dappManifest.Name,
@@ -207,7 +217,7 @@ func (r *DappManifestReconciler) reconcileHelmRelease(ctx context.Context, dappM
 	helmRepoName := helmRepositoryName(dappManifest)
 
 	// Chart contract: the chart mounts this Secret at /var/run/orca/e3/token.
-	values, err := json.Marshal(map[string]any{"orca": map[string]string{"e3TokenSecret": tokenSecretName(dappManifest)}})
+	values, err := json.Marshal(map[string]any{"orca": map[string]string{"e3TokenSecret": tokenSecret}})
 	if err != nil {
 		return err
 	}

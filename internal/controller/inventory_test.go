@@ -17,7 +17,11 @@ limitations under the License.
 package controller
 
 import (
+	"strings"
 	"testing"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	cachev1alpha1 "github.com/pedromartinssouza/orca/api/v1alpha1"
 )
@@ -57,5 +61,15 @@ func TestNewTokenHash(t *testing.T) {
 	}
 	if tok2, _, _ := newToken(); tok2 == tok {
 		t.Fatal("tokens equal")
+	}
+}
+
+func TestTokenSecretNameTruncatesToValidName(t *testing.T) {
+	// The cut lands right after a '.', which must be trimmed to keep a valid subdomain.
+	name := strings.Repeat("a", 236) + ".b" + strings.Repeat("c", 20)
+	dm := &cachev1alpha1.DappManifest{ObjectMeta: metav1.ObjectMeta{Namespace: "x", Name: name}}
+	got := tokenSecretName(dm, strings.Repeat("f", 64))
+	if errs := validation.IsDNS1123Subdomain(got); len(errs) > 0 || !strings.HasSuffix(got, "-e3-ffffffffff") {
+		t.Fatalf("%q: %v", got, errs)
 	}
 }

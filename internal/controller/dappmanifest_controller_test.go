@@ -51,15 +51,15 @@ var _ = Describe("DappManifest Controller", func() {
 
 		var reconciler *DappManifestReconciler
 
-		newDappManifest := func(name string) *cachev1alpha1.DappManifest {
+		newDappManifest := func(key types.NamespacedName) *cachev1alpha1.DappManifest {
 			return &cachev1alpha1.DappManifest{
-				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace},
 				Spec: cachev1alpha1.DappManifestSpec{
-					DappName:  name,
+					DappName:  key.Name,
 					Namespace: targetNS,
 					NodeName:  "node-a",
 					Helm: cachev1alpha1.HelmSpec{
-						ReleaseName: name,
+						ReleaseName: key.Name,
 						ChartName:   "podinfo",
 						Version:     ">=6.0.0",
 						RepoURL:     repoURL,
@@ -68,7 +68,7 @@ var _ = Describe("DappManifest Controller", func() {
 			}
 		}
 
-		// cleanupDappManifest deletes dm and what its reconcile created (envtest has no GC).
+		// cleanupDappManifest deletes dm and its Flux objects (envtest has no GC).
 		// Deletion logic lands in Task 5, so the finalizer is removed by hand.
 		cleanupDappManifest := func(key types.NamespacedName) {
 			dm := &cachev1alpha1.DappManifest{}
@@ -81,7 +81,6 @@ var _ = Describe("DappManifest Controller", func() {
 			for _, obj := range []client.Object{
 				&helmv2.HelmRelease{ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace}},
 				&sourcev1.HelmRepository{ObjectMeta: metav1.ObjectMeta{Name: key.Name + "-helmrepo", Namespace: key.Namespace}},
-				&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: key.Name + "-e3-token", Namespace: targetNS}},
 			} {
 				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, obj))).To(Succeed())
 			}
@@ -113,17 +112,30 @@ var _ = Describe("DappManifest Controller", func() {
 			return inv
 		}
 
-		getEntry := func(name string) cachev1alpha1.DappInventoryEntry {
+		getEntry := func(key types.NamespacedName) cachev1alpha1.DappInventoryEntry {
 			inv := getInventory()
-			i := findEntry(inv.Spec.Entries, cachev1alpha1.DappRef{Namespace: "default", Name: name})
+			i := findEntry(inv.Spec.Entries, cachev1alpha1.DappRef{Namespace: key.Namespace, Name: key.Name})
 			Expect(i).To(BeNumerically(">=", 0))
 			return inv.Spec.Entries[i]
 		}
 
+		// currentSecretName is the Secret named after the entry's current token hash.
+		currentSecretName := func(key types.NamespacedName) string {
+			return tokenSecretName(getDM(key), getEntry(key).TokenHash)
+		}
+
 		getSecret := func(name string) *corev1.Secret {
 			s := &corev1.Secret{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name + "-e3-token", Namespace: targetNS}, s)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: targetNS}, s)).To(Succeed())
 			return s
+		}
+
+		helmValuesSecret := func(key types.NamespacedName) string {
+			hr := &helmv2.HelmRelease{}
+			Expect(k8sClient.Get(ctx, key, hr)).To(Succeed())
+			var values map[string]map[string]string
+			Expect(json.Unmarshal(hr.Spec.Values.Raw, &values)).To(Succeed())
+			return values["orca"]["e3TokenSecret"]
 		}
 
 		condStatus := func(dm *cachev1alpha1.DappManifest, t string) metav1.ConditionStatus {
@@ -132,16 +144,26 @@ var _ = Describe("DappManifest Controller", func() {
 			return c.Status
 		}
 
-		BeforeEach(func() {
-			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "orca-system"}}
-			if err := k8sClient.Create(ctx, ns); err != nil && !errors.IsAlreadyExists(err) {
-				Fail(err.Error())
+		setGatewayStatus := func(gen int64) {
+			inv := getInventory()
+			inv.Status.Entries = []cachev1alpha1.DappInventoryEntryStatus{
+				{DappID: 1, Generation: gen, Registered: true, Advertised: true},
 			}
-			reconciler = &DappManifestReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(),
+			Expect(k8sClient.Status().Update(ctx, inv)).To(Succeed())
+		}
+
+		BeforeEach(func() {
+			for _, name := range []string{"orca-system", "other"} {
+				ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}
+				if err := k8sClient.Create(ctx, ns); err != nil && !errors.IsAlreadyExists(err) {
+					Fail(err.Error())
+				}
+			}
+			reconciler = &DappManifestReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(),
 				GatewayImage: "example.com/gw:test", GatewayNamespace: "orca-system"}
 
 			By("creating the DappManifest resource")
-			Expect(k8sClient.Create(ctx, newDappManifest(resourceName))).To(Succeed())
+			Expect(k8sClient.Create(ctx, newDappManifest(namespacedName))).To(Succeed())
 		})
 
 		AfterEach(func() {
@@ -151,7 +173,9 @@ var _ = Describe("DappManifest Controller", func() {
 			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, dep))).To(Succeed())
 			inv := &cachev1alpha1.DappInventory{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}
 			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, inv))).To(Succeed())
-			// The target namespace is kept: envtest has no namespace controller, so a deleted
+			Expect(k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(targetNS),
+				client.MatchingLabels{ManagedByLabel: "orca"})).To(Succeed())
+			// Namespaces are kept: envtest has no namespace controller, so a deleted
 			// namespace stays Terminating and the next spec could not create Secrets in it.
 		})
 
@@ -162,27 +186,49 @@ var _ = Describe("DappManifest Controller", func() {
 			Expect(err).To(MatchError(ContainSubstring("nodeName is immutable")))
 		})
 
+		It("rejects changing namespace", func() {
+			dm := getDM(namespacedName)
+			dm.Spec.Namespace = "elsewhere"
+			err := k8sClient.Update(ctx, dm)
+			Expect(err).To(MatchError(ContainSubstring("namespace is immutable")))
+		})
+
 		It("assigns a dApp ID, stores only the token hash, and creates the Secret", func() {
 			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
 
-			secret := getSecret(resourceName)
-			Expect(secret.Labels).To(HaveKeyWithValue("app.kubernetes.io/managed-by", "orca"))
-			entry := getEntry(resourceName)
+			dm := getDM(namespacedName)
+			entry := getEntry(namespacedName)
 			Expect(entry.DappID).To(Equal(int32(1)))
+			Expect(entry.Generation).To(Equal(int64(1)))
+
+			name := currentSecretName(namespacedName)
+			Expect(name).To(Equal("default-test-dapp-e3-" + entry.TokenHash[:10]))
+			secret := getSecret(name)
+			Expect(secret.Labels).To(HaveKeyWithValue("app.kubernetes.io/managed-by", "orca"))
+			Expect(secret.Labels).To(HaveKeyWithValue("orca.cache.orca.com/dapp-uid", string(dm.UID)))
+			Expect(secret.Annotations).To(HaveKeyWithValue("orca.cache.orca.com/dapp-generation", "1"))
 			Expect(entry.TokenHash).To(Equal(hashToken(string(secret.Data["token"]))))
 
 			helmRelease := &helmv2.HelmRelease{}
 			Expect(k8sClient.Get(ctx, helmReleaseName, helmRelease)).To(Succeed())
 			Expect(helmRelease.Spec.TargetNamespace).To(Equal(targetNS))
 			Expect(helmRelease.Spec.PostRenderers[0].Kustomize.Patches[0].Patch).To(ContainSubstring("nodeName: node-a"))
-			var values map[string]map[string]string
-			Expect(json.Unmarshal(helmRelease.Spec.Values.Raw, &values)).To(Succeed())
-			Expect(values["orca"]["e3TokenSecret"]).To(Equal(resourceName + "-e3-token"))
+			Expect(helmValuesSecret(helmReleaseName)).To(Equal(name))
 
-			dm := getDM(namespacedName)
 			Expect(dm.Finalizers).To(ContainElement(dappFinalizer))
 			Expect(dm.Status.DappID).To(Equal(int32(1)))
 			Expect(dm.Status.NodeName).To(Equal("node-a"))
+		})
+
+		It("does not rotate when nothing changed", func() {
+			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
+			before := getEntry(namespacedName)
+			name := currentSecretName(namespacedName)
+
+			Expect(reconcileOnce(namespacedName)).To(Succeed())
+			Expect(getEntry(namespacedName)).To(Equal(before))
+			Expect(helmValuesSecret(helmReleaseName)).To(Equal(name))
+			getSecret(name)
 		})
 
 		It("reports Ready only after the Gateway registers and advertises", func() {
@@ -193,11 +239,7 @@ var _ = Describe("DappManifest Controller", func() {
 			Expect(condStatus(dm, "GatewayReady")).To(Equal(metav1.ConditionTrue))
 			Expect(condStatus(dm, "Registered")).To(Equal(metav1.ConditionFalse))
 
-			inv := getInventory()
-			inv.Status.Entries = []cachev1alpha1.DappInventoryEntryStatus{
-				{DappID: 1, Generation: getEntry(resourceName).Generation, Registered: true, Advertised: true},
-			}
-			Expect(k8sClient.Status().Update(ctx, inv)).To(Succeed())
+			setGatewayStatus(getEntry(namespacedName).Generation)
 
 			helmRelease := &helmv2.HelmRelease{}
 			Expect(k8sClient.Get(ctx, helmReleaseName, helmRelease)).To(Succeed())
@@ -212,14 +254,11 @@ var _ = Describe("DappManifest Controller", func() {
 			}
 		})
 
-		It("rotates the token when the spec changes", func() {
+		It("rotates the token into a new Secret when the spec changes", func() {
 			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
-			before := getEntry(resourceName)
-			inv := getInventory()
-			inv.Status.Entries = []cachev1alpha1.DappInventoryEntryStatus{
-				{DappID: 1, Generation: before.Generation, Registered: true, Advertised: true},
-			}
-			Expect(k8sClient.Status().Update(ctx, inv)).To(Succeed())
+			before := getEntry(namespacedName)
+			oldName := currentSecretName(namespacedName)
+			setGatewayStatus(before.Generation)
 
 			dm := getDM(namespacedName)
 			dm.Spec.Helm.Version = ">=6.1.0"
@@ -227,29 +266,37 @@ var _ = Describe("DappManifest Controller", func() {
 			Expect(reconcileOnce(namespacedName)).To(Succeed())
 
 			dm = getDM(namespacedName)
-			after := getEntry(resourceName)
+			after := getEntry(namespacedName)
+			newName := currentSecretName(namespacedName)
 			Expect(after.DappID).To(Equal(before.DappID))
-			Expect(after.Generation).To(Equal(dm.Generation))
+			Expect(after.Generation).To(Equal(before.Generation + 1))
 			Expect(after.TokenHash).NotTo(Equal(before.TokenHash))
-			Expect(after.TokenHash).To(Equal(hashToken(string(getSecret(resourceName).Data["token"]))))
+			Expect(newName).NotTo(Equal(oldName))
+			Expect(helmValuesSecret(helmReleaseName)).To(Equal(newName))
+			Expect(after.TokenHash).To(Equal(hashToken(string(getSecret(newName).Data["token"]))))
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: oldName, Namespace: targetNS}, &corev1.Secret{})
+			Expect(errors.IsNotFound(err)).To(BeTrue())
 			Expect(condStatus(dm, "Registered")).To(Equal(metav1.ConditionFalse))
 			Expect(condStatus(dm, "Advertised")).To(Equal(metav1.ConditionFalse))
 		})
 
 		It("rotates the token when the Secret is missing", func() {
 			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
-			before := getEntry(resourceName)
-			Expect(k8sClient.Delete(ctx, getSecret(resourceName))).To(Succeed())
+			before := getEntry(namespacedName)
+			setGatewayStatus(before.Generation)
+			Expect(k8sClient.Delete(ctx, getSecret(currentSecretName(namespacedName)))).To(Succeed())
 
 			Expect(reconcileOnce(namespacedName)).To(Succeed())
-			after := getEntry(resourceName)
+			after := getEntry(namespacedName)
+			Expect(after.Generation).To(Equal(before.Generation + 1))
 			Expect(after.TokenHash).NotTo(Equal(before.TokenHash))
-			Expect(after.TokenHash).To(Equal(hashToken(string(getSecret(resourceName).Data["token"]))))
+			Expect(after.TokenHash).To(Equal(hashToken(string(getSecret(currentSecretName(namespacedName)).Data["token"]))))
+			Expect(condStatus(getDM(namespacedName), "Registered")).To(Equal(metav1.ConditionFalse))
 		})
 
 		It("gives distinct IDs to two dApps on the same node", func() {
 			second := types.NamespacedName{Name: resourceName + "-2", Namespace: "default"}
-			Expect(k8sClient.Create(ctx, newDappManifest(second.Name))).To(Succeed())
+			Expect(k8sClient.Create(ctx, newDappManifest(second))).To(Succeed())
 			DeferCleanup(cleanupDappManifest, second)
 
 			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
@@ -268,6 +315,24 @@ var _ = Describe("DappManifest Controller", func() {
 				}
 			}
 			Expect(n).To(Equal(1))
+		})
+
+		It("keeps separate stable Secrets for same-named dApps in different namespaces", func() {
+			other := types.NamespacedName{Name: resourceName, Namespace: "other"}
+			Expect(k8sClient.Create(ctx, newDappManifest(other))).To(Succeed())
+			DeferCleanup(cleanupDappManifest, other)
+
+			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
+			Expect(reconcileOnce(other)).To(Succeed())
+			first, second := getEntry(namespacedName), getEntry(other)
+			Expect(currentSecretName(namespacedName)).NotTo(Equal(currentSecretName(other)))
+
+			Expect(reconcileOnce(namespacedName)).To(Succeed())
+			Expect(reconcileOnce(other)).To(Succeed())
+			Expect(getEntry(namespacedName)).To(Equal(first))
+			Expect(getEntry(other)).To(Equal(second))
+			getSecret(currentSecretName(namespacedName))
+			getSecret(currentSecretName(other))
 		})
 
 		It("fails with InventoryUpdateFailed when the node is full", func() {

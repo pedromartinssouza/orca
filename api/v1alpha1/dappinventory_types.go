@@ -31,9 +31,10 @@ type DappInventoryEntry struct {
 	Dapp DappRef `json:"dapp"`
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=100
-	DappID     int32  `json:"dappId"`
-	TokenHash  string `json:"tokenHash"`
-	Generation int64  `json:"generation"`
+	DappID    int32  `json:"dappId"`
+	TokenHash string `json:"tokenHash"`
+	// Generation is a rotation counter, bumped on every token rotation.
+	Generation int64 `json:"generation"`
 }
 
 // DappInventorySpec is the desired per-node dApp inventory.

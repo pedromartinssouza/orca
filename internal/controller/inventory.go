@@ -22,12 +22,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strconv"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	cachev1alpha1 "github.com/pedromartinssouza/orca/api/v1alpha1"
 )
@@ -84,11 +86,26 @@ func findEntryStatus(status []cachev1alpha1.DappInventoryEntryStatus, id int32) 
 	return nil
 }
 
-// ManagedByLabel marks the token Secrets so that the manager only caches ORCA's own Secrets.
-const ManagedByLabel = "app.kubernetes.io/managed-by"
+const (
+	// ManagedByLabel marks the token Secrets so that the manager only caches ORCA's own Secrets.
+	ManagedByLabel = "app.kubernetes.io/managed-by"
+	// dappUIDLabel ties a token Secret to its DappManifest, so stale ones can be pruned.
+	dappUIDLabel = "orca.cache.orca.com/dapp-uid"
+	// dappGenerationAnnotation is the DappManifest generation that triggered the rotation.
+	dappGenerationAnnotation = "orca.cache.orca.com/dapp-generation"
+)
 
-// tokenSecretName is the Secret, in dm.Spec.Namespace, that holds the dApp's E3 token under key "token".
-func tokenSecretName(dm *cachev1alpha1.DappManifest) string { return dm.Name + "-e3-token" }
+// tokenSecretName is the Secret, in dm.Spec.Namespace, that holds the token whose hash is
+// tokenHash, under key "token". Each rotation gets a new name, so the HelmRelease values
+// change and Flux rolls the dApp pod. The name stays a DNS-1123 subdomain of at most 253 chars.
+func tokenSecretName(dm *cachev1alpha1.DappManifest, tokenHash string) string {
+	suffix := "-e3-" + tokenHash[:min(10, len(tokenHash))]
+	prefix := dm.Namespace + "-" + dm.Name
+	if limit := 253 - len(suffix); len(prefix) > limit {
+		prefix = strings.TrimRight(prefix[:limit], "-.")
+	}
+	return prefix + suffix
+}
 
 func (r *DappManifestReconciler) getOrCreateInventory(ctx context.Context, node string) (*cachev1alpha1.DappInventory, error) {
 	inv := &cachev1alpha1.DappInventory{}
@@ -100,10 +117,10 @@ func (r *DappManifestReconciler) getOrCreateInventory(ctx context.Context, node 
 	return inv, err
 }
 
-// reconcileInventory reserves the dApp ID and rotates the E3 token when the entry is new,
-// the spec generation changed, or the Secret no longer matches the stored hash.
-// The inventory is written before the Secret, so a failed Secret write is caught as a
-// hash mismatch on the next reconcile.
+// reconcileInventory reserves the dApp ID and rotates the E3 token when the entry is new or
+// its current Secret is missing, stale (other DappManifest generation) or does not match the
+// stored hash. The inventory is written before the Secret, so a failed Secret write is seen
+// as a missing Secret on the next reconcile.
 func (r *DappManifestReconciler) reconcileInventory(ctx context.Context, dm *cachev1alpha1.DappManifest) (*cachev1alpha1.DappInventory, cachev1alpha1.DappInventoryEntry, error) {
 	var entry cachev1alpha1.DappInventoryEntry
 	inv, err := r.getOrCreateInventory(ctx, dm.Spec.NodeName)
@@ -116,25 +133,21 @@ func (r *DappManifestReconciler) reconcileInventory(ctx context.Context, dm *cac
 		return nil, entry, err
 	}
 
-	secret := &corev1.Secret{}
-	err = r.Get(ctx, types.NamespacedName{Name: tokenSecretName(dm), Namespace: dm.Spec.Namespace}, secret)
-	if err != nil && !apierrors.IsNotFound(err) {
-		return nil, entry, err
-	}
-	secretFound := err == nil
-
 	i := findEntry(inv.Spec.Entries, ref)
-	if i >= 0 && secretFound && inv.Spec.Entries[i].Generation == dm.Generation &&
-		hashToken(string(secret.Data["token"])) == inv.Spec.Entries[i].TokenHash {
-		return inv, inv.Spec.Entries[i], nil
+	if i >= 0 {
+		current, err := r.tokenSecretCurrent(ctx, dm, inv.Spec.Entries[i])
+		if err != nil || current {
+			return inv, inv.Spec.Entries[i], err
+		}
 	}
 
 	token, hash, err := newToken()
 	if err != nil {
 		return nil, entry, err
 	}
-	entry = cachev1alpha1.DappInventoryEntry{Dapp: ref, DappID: id, TokenHash: hash, Generation: dm.Generation}
+	entry = cachev1alpha1.DappInventoryEntry{Dapp: ref, DappID: id, TokenHash: hash, Generation: 1}
 	if i >= 0 {
+		entry.Generation = inv.Spec.Entries[i].Generation + 1
 		inv.Spec.Entries[i] = entry
 	} else {
 		inv.Spec.Entries = append(inv.Spec.Entries, entry)
@@ -142,26 +155,67 @@ func (r *DappManifestReconciler) reconcileInventory(ctx context.Context, dm *cac
 	if err := r.Update(ctx, inv); err != nil {
 		return nil, entry, err
 	}
-	if err := r.reconcileTokenSecret(ctx, dm, token); err != nil {
+	if err := r.createTokenSecret(ctx, dm, token, hash); err != nil {
 		return nil, entry, err
 	}
 	return inv, entry, nil
 }
 
-// reconcileTokenSecret makes sure the target namespace exists and writes the token Secret.
-func (r *DappManifestReconciler) reconcileTokenSecret(ctx context.Context, dm *cachev1alpha1.DappManifest, token string) error {
+// tokenSecretCurrent reports whether the entry's Secret exists, was written for the current
+// DappManifest generation, and holds the token the entry hashes. It reads uncached.
+func (r *DappManifestReconciler) tokenSecretCurrent(ctx context.Context, dm *cachev1alpha1.DappManifest, e cachev1alpha1.DappInventoryEntry) (bool, error) {
+	secret := &corev1.Secret{}
+	key := types.NamespacedName{Name: tokenSecretName(dm, e.TokenHash), Namespace: dm.Spec.Namespace}
+	if err := r.APIReader.Get(ctx, key, secret); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	return secret.Annotations[dappGenerationAnnotation] == strconv.FormatInt(dm.Generation, 10) &&
+		hashToken(string(secret.Data["token"])) == e.TokenHash, nil
+}
+
+// createTokenSecret makes sure the target namespace exists and creates the Secret for a new token.
+func (r *DappManifestReconciler) createTokenSecret(ctx context.Context, dm *cachev1alpha1.DappManifest, token, hash string) error {
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: dm.Spec.Namespace}}
 	if err := r.Create(ctx, ns); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
-	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: tokenSecretName(dm), Namespace: dm.Spec.Namespace}}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, secret, func() error {
-		if secret.Labels == nil {
-			secret.Labels = map[string]string{}
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        tokenSecretName(dm, hash),
+			Namespace:   dm.Spec.Namespace,
+			Labels:      map[string]string{ManagedByLabel: "orca", dappUIDLabel: string(dm.UID)},
+			Annotations: map[string]string{dappGenerationAnnotation: strconv.FormatInt(dm.Generation, 10)},
+		},
+		Data: map[string][]byte{"token": []byte(token)},
+	}
+	err := r.Create(ctx, secret)
+	if !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	existing := &corev1.Secret{}
+	if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(secret), existing); err != nil {
+		return err
+	}
+	if hashToken(string(existing.Data["token"])) != hash {
+		return fmt.Errorf("token Secret %s/%s exists with another token", secret.Namespace, secret.Name)
+	}
+	return nil
+}
+
+// pruneTokenSecrets deletes the dApp's token Secrets other than current. It reads uncached.
+func (r *DappManifestReconciler) pruneTokenSecrets(ctx context.Context, dm *cachev1alpha1.DappManifest, current string) error {
+	list := &corev1.SecretList{}
+	if err := r.APIReader.List(ctx, list, client.InNamespace(dm.Spec.Namespace),
+		client.MatchingLabels{dappUIDLabel: string(dm.UID)}); err != nil {
+		return err
+	}
+	for i := range list.Items {
+		if list.Items[i].Name == current {
+			continue
 		}
-		secret.Labels[ManagedByLabel] = "orca"
-		secret.Data = map[string][]byte{"token": []byte(token)}
-		return nil
-	})
-	return err
+		if err := r.Delete(ctx, &list.Items[i]); client.IgnoreNotFound(err) != nil {
+			return err
+		}
+	}
+	return nil
 }

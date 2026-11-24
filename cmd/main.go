@@ -224,6 +224,7 @@ func main() {
 
 	if err := (&controller.DappManifestReconciler{
 		Client:           mgr.GetClient(),
+		APIReader:        mgr.GetAPIReader(),
 		Scheme:           mgr.GetScheme(),
 		GatewayImage:     gatewayImage,
 		GatewayNamespace: gatewayNamespace,
