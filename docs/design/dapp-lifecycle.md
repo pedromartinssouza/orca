@@ -1,6 +1,6 @@
 # ORCA dApp lifecycle with the Gateway RAN Function
 
-Status: agreed design (brainstorm of 2026-11-18 and 2026-11-24). Not implemented yet.
+Status: agreed design (brainstorm of 2026-11-18 and 2026-11-24). ORCA side implemented on branch feat/dapp-inventory. Gateway not implemented yet.
 
 ## Goal
 
@@ -22,7 +22,13 @@ It terminates E3 for the dApps on its node and advertises them to the RIC via RI
 
 **DappInventory (new CR, one per node, name = node name).**
 - `spec`, written by ORCA: the dApps on the node. Each entry has the DappManifest reference, the reserved dApp ID, the credential reference, and an entry generation.
-- `status`, written by the Gateway: per dApp, whether it is Registered and Advertised. The Gateway confirms a withdrawal by deleting the dApp's status entry. When a dApp leaves the spec, the Gateway un-advertises it (or cancels an add still in flight), closes its E3 session, and then removes its status entry.
+- `status`, written by the Gateway: per dApp, whether it is Registered and Advertised. The Gateway confirms a withdrawal by deleting the dApp's status entry.
+
+Gateway contract (the ORCA side relies on all four rules):
+1. **Entry before anything in flight.** The Gateway writes a status entry (`registered: false`) before it accepts an E3 Setup or starts any RIC Service Update for that ID. Then "no status entry" always means "nothing in flight".
+2. **Withdraw, then remove.** When a dApp leaves the spec, the Gateway un-advertises it (or cancels an add still in flight), closes its E3 session, and only then removes its status entry.
+3. **Level-based.** Any status entry whose ID has no spec entry is withdrawn and removed, including entries found after a Gateway restart. An orphan entry would otherwise block every deletion on the node.
+4. **Conditional writes.** Every status write is conditional on the `resourceVersion` the Gateway read. A write based on a spec that no longer holds the ID fails, so a late write cannot recreate a removed entry.
 
 RBAC is split: ORCA writes `spec`, and the Gateway may only get and watch the CR and patch `dappinventories/status`.
 
@@ -121,9 +127,9 @@ sequenceDiagram
 
 1. Remove the dApp's entry from DappInventory(N).spec.
 2. Wait until the Gateway confirms the withdrawal by removing the dApp's status entry. `Advertised=false` alone is not enough, because an add may still be in flight.
-3. Delete the dApp (HelmRelease).
+3. Delete the dApp's token Secrets.
 4. If it was the last dApp on N, wait until the inventory status is empty, then delete DappInventory(N). Garbage collection then removes the Gateway.
-5. Remove the finalizer.
+5. Remove the finalizer. Garbage collection then removes the HelmRelease and with it the dApp pod, which is safe because the dApp is already withdrawn.
 
 Two more rules keep step 4 safe:
 - **When the inventory is deleted.** Step 4 applies only when both the spec and the status are empty. While the spec is empty but the status is not, every deleting dApp on the node keeps waiting. The last one to see an empty status deletes the inventory. This way the Gateway is never removed while a withdrawal is still in progress, and no Gateway is left behind on a node without dApps.
@@ -147,7 +153,7 @@ Rotate the token, which bumps the entry generation in DappInventory, before upda
 | `Advertised` | DappInventory status | The RIC acked the RIC Service Update |
 | `Ready` | Aggregate | All four are True |
 
-- On deletion, `Ready=False` with reason `Deleting`, or `WaitingForWithdraw` while ORCA waits for the Gateway. `Advertised=False` with reason `Withdrawn` is set once the Gateway has removed the dApp's status entry, which unblocks dApp deletion.
+- On deletion, `Ready=False` with reason `Deleting`, or `WaitingForWithdraw` while ORCA waits for the Gateway. `Advertised=False` with reason `Withdrawn` is set once deletion stops waiting, just before the finalizer is removed.
 - If the inventory write fails, `Ready=False` with reason `InventoryUpdateFailed`. This step has no condition of its own, because it is ORCA's synchronous write.
 - New status fields: `dappId` and `nodeName`, next to the existing `helmRepositoryRef` and `helmReleaseRef`.
 
