@@ -11,8 +11,7 @@ spec:
     chartName: dapp-sample-app
     version: "0.1.0"
     repoURL: oci://ghcr.io/pedromartinssouza/charts
-  nodeSelector:
-    type: o-du
+  nodeName: o-du
   tolerations:
   - key: dedicated
     operator: Equal

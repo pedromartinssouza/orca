@@ -23,9 +23,7 @@ spec:
     chartName: my-dapp-chart
     version: ">=1.0.0"
     repoURL: oci://ghcr.io/you/charts
-  nodeName: o-du-worker-2      # pin to one exact node...
-  nodeSelector:                # ...or target any node of a type
-    type: o-du
+  nodeName: o-du-worker-2      # required, immutable
   tolerations:
   - key: dedicated
     operator: Equal

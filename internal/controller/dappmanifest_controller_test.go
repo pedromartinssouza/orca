@@ -55,6 +55,7 @@ var _ = Describe("DappManifest Controller", func() {
 					Spec: cachev1alpha1.DappManifestSpec{
 						DappName:  "test-dapp",
 						Namespace: "test-dapp-system",
+						NodeName:  "node-a",
 						Helm: cachev1alpha1.HelmSpec{
 							ReleaseName: "test-dapp",
 							ChartName:   "podinfo",
@@ -72,6 +73,14 @@ var _ = Describe("DappManifest Controller", func() {
 			err := k8sClient.Get(ctx, namespacedName, dappManifest)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(k8sClient.Delete(ctx, dappManifest)).To(Succeed())
+		})
+
+		It("rejects changing nodeName", func() {
+			dm := &cachev1alpha1.DappManifest{}
+			Expect(k8sClient.Get(ctx, namespacedName, dm)).To(Succeed())
+			dm.Spec.NodeName = "node-b"
+			err := k8sClient.Update(ctx, dm)
+			Expect(err).To(MatchError(ContainSubstring("nodeName is immutable")))
 		})
 
 		It("should create a HelmRepository and HelmRelease and set Ready=True", func() {
@@ -98,6 +107,8 @@ var _ = Describe("DappManifest Controller", func() {
 			Expect(helmRelease.Spec.ReleaseName).To(Equal("test-dapp"))
 			Expect(helmRelease.Spec.Install).NotTo(BeNil())
 			Expect(helmRelease.Spec.Install.CreateNamespace).To(BeTrue())
+			Expect(helmRelease.Spec.PostRenderers).To(HaveLen(1))
+			Expect(helmRelease.Spec.PostRenderers[0].Kustomize.Patches[0].Patch).To(ContainSubstring("nodeName: node-a"))
 
 			By("checking that the DappManifest status reflects Ready=True")
 			dappManifest := &cachev1alpha1.DappManifest{}

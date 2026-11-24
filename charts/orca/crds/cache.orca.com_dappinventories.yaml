@@ -1,0 +1,113 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: dappinventories.cache.orca.com
+spec:
+  group: cache.orca.com
+  names:
+    kind: DappInventory
+    listKind: DappInventoryList
+    plural: dappinventories
+    singular: dappinventory
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: DappInventory is the per-node dApp inventory, named after the
+          node.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: DappInventorySpec is the desired per-node dApp inventory.
+            properties:
+              entries:
+                items:
+                  description: DappInventoryEntry is one dApp admitted on the node.
+                  properties:
+                    dapp:
+                      description: DappRef identifies the DappManifest that owns an
+                        inventory entry.
+                      properties:
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                      required:
+                      - name
+                      - namespace
+                      type: object
+                    dappId:
+                      format: int32
+                      maximum: 100
+                      minimum: 1
+                      type: integer
+                    generation:
+                      format: int64
+                      type: integer
+                    tokenHash:
+                      type: string
+                  required:
+                  - dapp
+                  - dappId
+                  - generation
+                  - tokenHash
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - dappId
+                x-kubernetes-list-type: map
+            type: object
+          status:
+            description: DappInventoryStatus is the observed per-node inventory.
+            properties:
+              entries:
+                items:
+                  description: DappInventoryEntryStatus is the observed state of one
+                    entry.
+                  properties:
+                    advertised:
+                      type: boolean
+                    dappId:
+                      format: int32
+                      type: integer
+                    generation:
+                      format: int64
+                      type: integer
+                    registered:
+                      type: boolean
+                  required:
+                  - advertised
+                  - dappId
+                  - generation
+                  - registered
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - dappId
+                x-kubernetes-list-type: map
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
