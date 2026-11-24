@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -27,6 +28,7 @@ import (
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
 	fluxkustomize "github.com/fluxcd/pkg/apis/kustomize"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,6 +41,8 @@ import (
 
 	cachev1alpha1 "github.com/pedromartinssouza/orca/api/v1alpha1"
 )
+
+const dappFinalizer = "cache.orca.com/dapp-inventory"
 
 // DappManifestReconciler reconciles a DappManifest object
 type DappManifestReconciler struct {
@@ -64,52 +68,110 @@ type DappManifestReconciler struct {
 func (r *DappManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
-	dappManifest := &cachev1alpha1.DappManifest{}
-	if err := r.Get(ctx, req.NamespacedName, dappManifest); err != nil {
+	dm := &cachev1alpha1.DappManifest{}
+	if err := r.Get(ctx, req.NamespacedName, dm); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	log.Info("reconciling dappmanifest", "name", req.NamespacedName)
 
-	if err := r.reconcileHelmRepository(ctx, dappManifest); err != nil {
+	// Deletion is handled in a later change; never re-reserve an ID for a dApp being deleted.
+	if !dm.DeletionTimestamp.IsZero() {
+		return ctrl.Result{}, nil
+	}
+
+	writeStatus := func() (ctrl.Result, error) {
+		if err := r.Status().Update(ctx, dm); err != nil {
+			if apierrors.IsConflict(err) {
+				return ctrl.Result{Requeue: true}, nil
+			}
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+	fail := func(reason string, err error) (ctrl.Result, error) {
 		if apierrors.IsConflict(err) {
 			return ctrl.Result{Requeue: true}, nil
 		}
-		log.Error(err, "failed to reconcile HelmRepository")
-		r.setReadyCondition(dappManifest, metav1.ConditionFalse, "HelmRepositoryFailed", err.Error())
-		_ = r.Status().Update(ctx, dappManifest)
+		log.Error(err, "reconcile failed", "reason", reason)
+		r.setReadyCondition(dm, metav1.ConditionFalse, reason, err.Error())
+		_ = r.Status().Update(ctx, dm)
 		return ctrl.Result{}, err
 	}
 
-	if err := r.reconcileHelmRelease(ctx, dappManifest); err != nil {
-		if apierrors.IsConflict(err) {
-			return ctrl.Result{Requeue: true}, nil
+	if dm.Spec.Namespace == "" {
+		r.setReadyCondition(dm, metav1.ConditionFalse, "InvalidSpec", "spec.namespace must be set")
+		return writeStatus()
+	}
+
+	if controllerutil.AddFinalizer(dm, dappFinalizer) {
+		if err := r.Update(ctx, dm); err != nil {
+			if apierrors.IsConflict(err) {
+				return ctrl.Result{Requeue: true}, nil
+			}
+			return ctrl.Result{}, err
 		}
-		log.Error(err, "failed to reconcile HelmRelease")
-		r.setReadyCondition(dappManifest, metav1.ConditionFalse, "HelmReleaseFailed", err.Error())
-		_ = r.Status().Update(ctx, dappManifest)
-		return ctrl.Result{}, err
 	}
 
-	helmRepoName := helmRepositoryName(dappManifest)
-	r.setReadyCondition(dappManifest, metav1.ConditionTrue, "Reconciled", "HelmRepository and HelmRelease are configured")
-	dappManifest.Status.HelmRepositoryRef = fmt.Sprintf("%s/%s", dappManifest.Namespace, helmRepoName)
-	dappManifest.Status.HelmReleaseRef = fmt.Sprintf("%s/%s", dappManifest.Namespace, dappManifest.Name)
+	inv, err := r.getOrCreateInventory(ctx, dm.Spec.NodeName)
+	if err != nil {
+		return fail("InventoryUpdateFailed", err)
+	}
 
-	r.syncInstalledCondition(ctx, dappManifest)
+	ready, err := r.ensureGateway(ctx, inv)
+	if err != nil {
+		return fail("GatewayFailed", err)
+	}
+	if !ready {
+		// The Gateway Deployment watch triggers the next reconcile.
+		r.setCondition(dm, "GatewayReady", metav1.ConditionFalse, "Pending", "Waiting for the Gateway on node "+dm.Spec.NodeName)
+		r.setReadyCondition(dm, metav1.ConditionFalse, "Pending", "Waiting for the Gateway")
+		return writeStatus()
+	}
+	r.setCondition(dm, "GatewayReady", metav1.ConditionTrue, "Ready", "The Gateway on node "+dm.Spec.NodeName+" is ready")
 
-	if err := r.Status().Update(ctx, dappManifest); err != nil {
-		if apierrors.IsConflict(err) {
-			return ctrl.Result{Requeue: true}, nil
+	inv, entry, err := r.reconcileInventory(ctx, dm)
+	if err != nil {
+		return fail("InventoryUpdateFailed", err)
+	}
+
+	if err := r.reconcileHelmRepository(ctx, dm); err != nil {
+		return fail("HelmRepositoryFailed", err)
+	}
+	if err := r.reconcileHelmRelease(ctx, dm); err != nil {
+		return fail("HelmReleaseFailed", err)
+	}
+
+	dm.Status.HelmRepositoryRef = fmt.Sprintf("%s/%s", dm.Namespace, helmRepositoryName(dm))
+	dm.Status.HelmReleaseRef = fmt.Sprintf("%s/%s", dm.Namespace, dm.Name)
+	dm.Status.DappID = entry.DappID
+	dm.Status.NodeName = dm.Spec.NodeName
+	r.syncInstalledCondition(ctx, dm)
+	r.syncLifecycleConditions(dm, inv, entry)
+	return writeStatus()
+}
+
+// syncLifecycleConditions reports Registered and Advertised from the Gateway's status for the
+// current entry generation, and Ready as the aggregate of the four lifecycle conditions.
+func (r *DappManifestReconciler) syncLifecycleConditions(dm *cachev1alpha1.DappManifest, inv *cachev1alpha1.DappInventory, entry cachev1alpha1.DappInventoryEntry) {
+	es := findEntryStatus(inv.Status.Entries, entry.DappID)
+	current := es != nil && es.Generation == entry.Generation
+	set := func(condType string, ok bool, message string) {
+		if ok {
+			r.setCondition(dm, condType, metav1.ConditionTrue, condType, message)
+		} else {
+			r.setCondition(dm, condType, metav1.ConditionFalse, "Pending", "Waiting for the Gateway")
 		}
-		return ctrl.Result{}, err
 	}
+	set("Registered", current && es.Registered, "E3 Setup accepted with the reserved dApp ID")
+	set("Advertised", current && es.Advertised, "The RIC acknowledged the RIC Service Update")
 
-	installed := apimeta.FindStatusCondition(dappManifest.Status.Conditions, "Installed")
-	if installed == nil || installed.Status != metav1.ConditionTrue {
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	for _, t := range []string{"GatewayReady", "Installed", "Registered", "Advertised"} {
+		if !apimeta.IsStatusConditionTrue(dm.Status.Conditions, t) {
+			r.setReadyCondition(dm, metav1.ConditionFalse, "Pending", "Waiting for "+t)
+			return
+		}
 	}
-
-	return ctrl.Result{}, nil
+	r.setReadyCondition(dm, metav1.ConditionTrue, "Reconciled", "The dApp is installed, registered and advertised")
 }
 
 func (r *DappManifestReconciler) reconcileHelmRepository(ctx context.Context, dappManifest *cachev1alpha1.DappManifest) error {
@@ -144,7 +206,13 @@ func (r *DappManifestReconciler) reconcileHelmRelease(ctx context.Context, dappM
 
 	helmRepoName := helmRepositoryName(dappManifest)
 
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, helmRelease, func() error {
+	// Chart contract: the chart mounts this Secret at /var/run/orca/e3/token.
+	values, err := json.Marshal(map[string]any{"orca": map[string]string{"e3TokenSecret": tokenSecretName(dappManifest)}})
+	if err != nil {
+		return err
+	}
+
+	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, helmRelease, func() error {
 		postRenderers, err := buildSchedulingPostRenderer(dappManifest)
 		if err != nil {
 			return err
@@ -165,13 +233,12 @@ func (r *DappManifestReconciler) reconcileHelmRelease(ctx context.Context, dappM
 				},
 			},
 			PostRenderers: postRenderers,
+			Values:        &apiextensionsv1.JSON{Raw: values},
 		}
 		if dappManifest.Spec.Helm.ReleaseName != "" {
 			helmRelease.Spec.ReleaseName = dappManifest.Spec.Helm.ReleaseName
 		}
-		if dappManifest.Spec.Namespace != "" {
-			helmRelease.Spec.TargetNamespace = dappManifest.Spec.Namespace
-		}
+		helmRelease.Spec.TargetNamespace = dappManifest.Spec.Namespace
 		return ctrl.SetControllerReference(dappManifest, helmRelease, r.Scheme)
 	})
 	return err

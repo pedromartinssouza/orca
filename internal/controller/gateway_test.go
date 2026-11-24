@@ -63,17 +63,13 @@ var _ = Describe("ensureGateway", func() {
 		Expect(*dep.OwnerReferences[0].Controller).To(BeTrue())
 
 		// Available replicas but the controller has not observed the latest generation: not ready.
-		dep.Status.Replicas, dep.Status.UpdatedReplicas = 1, 1
-		dep.Status.ReadyReplicas, dep.Status.AvailableReplicas = 1, 1
-		dep.Status.ObservedGeneration = dep.Generation - 1
-		Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
+		setDeploymentAvailable(dep, dep.Generation-1)
 		ready, err = r.ensureGateway(ctx, inv)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(ready).To(BeFalse())
 
 		Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
-		dep.Status.ObservedGeneration = dep.Generation
-		Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
+		setDeploymentAvailable(dep, dep.Generation)
 		ready, err = r.ensureGateway(ctx, inv)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(ready).To(BeTrue())
@@ -85,3 +81,11 @@ var _ = Describe("ensureGateway", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 })
+
+// setDeploymentAvailable writes a status with one available replica that envtest accepts.
+func setDeploymentAvailable(dep *appsv1.Deployment, observedGeneration int64) {
+	dep.Status.Replicas, dep.Status.UpdatedReplicas = 1, 1
+	dep.Status.ReadyReplicas, dep.Status.AvailableReplicas = 1, 1
+	dep.Status.ObservedGeneration = observedGeneration
+	Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
+}
