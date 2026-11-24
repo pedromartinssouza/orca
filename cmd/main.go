@@ -85,6 +85,9 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	var gatewayImage, gatewayNamespace string
+	flag.StringVar(&gatewayImage, "gateway-image", "", "Image of the per-node Gateway RAN Function pod.")
+	flag.StringVar(&gatewayNamespace, "gateway-namespace", "orca-system", "Namespace of the per-node Gateway Deployments.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -207,8 +210,10 @@ func main() {
 	}
 
 	if err := (&controller.DappManifestReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		GatewayImage:     gatewayImage,
+		GatewayNamespace: gatewayNamespace,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DappManifest")
 		os.Exit(1)

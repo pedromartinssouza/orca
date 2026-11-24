@@ -31,6 +31,8 @@ spec:
         - /manager
         args:
         - --health-probe-bind-address=:8081
+        - --gateway-image={{ .Values.gateway.image }}
+        - --gateway-namespace={{ .Values.gateway.namespace | default .Release.Namespace }}
         {{- if .Values.leaderElection.enabled }}
         - --leader-elect
         {{- end }}

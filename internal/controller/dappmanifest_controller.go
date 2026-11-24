@@ -44,6 +44,10 @@ import (
 type DappManifestReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	// GatewayImage and GatewayNamespace configure the per-node Gateway Deployment.
+	GatewayImage     string
+	GatewayNamespace string
 }
 
 // +kubebuilder:rbac:groups=cache.orca.com,resources=dappmanifests,verbs=get;list;watch;create;update;patch;delete
@@ -51,6 +55,11 @@ type DappManifestReconciler struct {
 // +kubebuilder:rbac:groups=cache.orca.com,resources=dappmanifests/finalizers,verbs=update
 // +kubebuilder:rbac:groups=source.toolkit.fluxcd.io,resources=helmrepositories,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=helm.toolkit.fluxcd.io,resources=helmreleases,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=cache.orca.com,resources=dappinventories,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=cache.orca.com,resources=dappinventories/status,verbs=get
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;create
 
 func (r *DappManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
