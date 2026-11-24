@@ -76,9 +76,8 @@ func (r *DappManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	log.Info("reconciling dappmanifest", "name", req.NamespacedName)
 
-	// Deletion is handled in a later change; never re-reserve an ID for a dApp being deleted.
 	if !dm.DeletionTimestamp.IsZero() {
-		return ctrl.Result{}, nil
+		return r.reconcileDelete(ctx, dm)
 	}
 
 	writeStatus := func() (ctrl.Result, error) {
@@ -153,6 +152,65 @@ func (r *DappManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	r.syncInstalledCondition(ctx, dm)
 	r.syncLifecycleConditions(dm, inv, entry)
 	return writeStatus()
+}
+
+// reconcileDelete removes the dApp's inventory entry, which tells the Gateway to withdraw it,
+// and keeps the finalizer until the Gateway reports it un-advertised. Then it deletes the token
+// Secrets and, for the last dApp on the node, the inventory (GC removes the Gateway). GC removes
+// the HelmRepository and HelmRelease through their owner references once the finalizer is gone.
+func (r *DappManifestReconciler) reconcileDelete(ctx context.Context, dm *cachev1alpha1.DappManifest) (ctrl.Result, error) {
+	if !controllerutil.ContainsFinalizer(dm, dappFinalizer) {
+		return ctrl.Result{}, nil
+	}
+	requeueOnConflict := func(err error) (ctrl.Result, error) {
+		if apierrors.IsConflict(err) {
+			return ctrl.Result{Requeue: true}, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	inv := &cachev1alpha1.DappInventory{}
+	getErr := r.Get(ctx, types.NamespacedName{Name: dm.Spec.NodeName}, inv)
+	if client.IgnoreNotFound(getErr) != nil {
+		return ctrl.Result{}, getErr
+	}
+	invFound := getErr == nil
+	if invFound {
+		r.setReadyCondition(dm, metav1.ConditionFalse, "Deleting", "Waiting for the Gateway to withdraw the dApp")
+		if i := findEntry(inv.Spec.Entries, cachev1alpha1.DappRef{Namespace: dm.Namespace, Name: dm.Name}); i >= 0 {
+			// Persist the ID first, so the wait below still finds it once the entry is gone.
+			dm.Status.DappID = inv.Spec.Entries[i].DappID
+			if err := r.Status().Update(ctx, dm); err != nil {
+				return requeueOnConflict(err)
+			}
+			inv.Spec.Entries = append(inv.Spec.Entries[:i], inv.Spec.Entries[i+1:]...)
+			if err := r.Update(ctx, inv); err != nil {
+				return requeueOnConflict(err)
+			}
+		}
+		if es := findEntryStatus(inv.Status.Entries, dm.Status.DappID); dm.Status.DappID != 0 && es != nil && es.Advertised {
+			// Ready=Deleting was written with the ID above. The inventory watch triggers the next reconcile.
+			return ctrl.Result{}, nil
+		}
+		r.setCondition(dm, "Advertised", metav1.ConditionFalse, "Withdrawn", "The Gateway withdrew the dApp from the RIC")
+		if err := r.Status().Update(ctx, dm); err != nil {
+			return requeueOnConflict(err)
+		}
+	}
+
+	if err := r.pruneTokenSecrets(ctx, dm, ""); err != nil {
+		return ctrl.Result{}, err
+	}
+	if invFound && len(inv.Spec.Entries) == 0 {
+		// The precondition keeps an entry added since our read from being deleted with the inventory.
+		err := r.Delete(ctx, inv, client.Preconditions{ResourceVersion: &inv.ResourceVersion})
+		if client.IgnoreNotFound(err) != nil {
+			return requeueOnConflict(err)
+		}
+	}
+
+	controllerutil.RemoveFinalizer(dm, dappFinalizer)
+	return requeueOnConflict(client.IgnoreNotFound(r.Update(ctx, dm)))
 }
 
 // syncLifecycleConditions reports Registered and Advertised from the Gateway's status for the

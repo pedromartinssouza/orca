@@ -30,7 +30,7 @@ func ref(n string) cachev1alpha1.DappRef { return cachev1alpha1.DappRef{Namespac
 
 func TestAllocateDappIDReturnsExisting(t *testing.T) {
 	es := []cachev1alpha1.DappInventoryEntry{{Dapp: ref("a"), DappID: 7}}
-	if id, err := allocateDappID(es, ref("a")); err != nil || id != 7 {
+	if id, err := allocateDappID(es, nil, ref("a")); err != nil || id != 7 {
 		t.Fatalf("got %d, %v", id, err)
 	}
 }
@@ -39,7 +39,7 @@ func TestAllocateDappIDLowestFree(t *testing.T) {
 	es := []cachev1alpha1.DappInventoryEntry{
 		{Dapp: ref("a"), DappID: 1}, {Dapp: ref("b"), DappID: 2}, {Dapp: ref("c"), DappID: 4},
 	}
-	if id, err := allocateDappID(es, ref("new")); err != nil || id != 3 {
+	if id, err := allocateDappID(es, nil, ref("new")); err != nil || id != 3 {
 		t.Fatalf("got %d, %v", id, err)
 	}
 }
@@ -49,8 +49,27 @@ func TestAllocateDappIDFull(t *testing.T) {
 	for i := minDappID; i <= maxDappID; i++ {
 		es = append(es, cachev1alpha1.DappInventoryEntry{Dapp: ref(string(rune('a'+i%26)) + string(rune('A'+i/26))), DappID: i})
 	}
-	if _, err := allocateDappID(es, ref("new")); err == nil {
+	if _, err := allocateDappID(es, nil, ref("new")); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestAllocateDappIDSkipsInUseStatus(t *testing.T) {
+	es := []cachev1alpha1.DappInventoryEntry{{Dapp: ref("a"), DappID: 1}}
+	for _, st := range []cachev1alpha1.DappInventoryEntryStatus{
+		{DappID: 2, Advertised: true},
+		{DappID: 2, Registered: true},
+	} {
+		if id, err := allocateDappID(es, []cachev1alpha1.DappInventoryEntryStatus{st}, ref("new")); err != nil || id != 3 {
+			t.Fatalf("%+v: got %d, %v", st, id, err)
+		}
+	}
+}
+
+func TestAllocateDappIDReusesWithdrawnStatus(t *testing.T) {
+	st := []cachev1alpha1.DappInventoryEntryStatus{{DappID: 1, Generation: 3}}
+	if id, err := allocateDappID(nil, st, ref("new")); err != nil || id != 1 {
+		t.Fatalf("got %d, %v", id, err)
 	}
 }
 

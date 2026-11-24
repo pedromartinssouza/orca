@@ -36,14 +36,20 @@ import (
 
 const minDappID, maxDappID int32 = 1, 100
 
-// allocateDappID returns the existing ID for ref, or the lowest free ID on the node.
-func allocateDappID(entries []cachev1alpha1.DappInventoryEntry, ref cachev1alpha1.DappRef) (int32, error) {
+// allocateDappID returns the existing ID for ref, or the lowest free ID on the node. An ID the
+// Gateway still reports as Registered or Advertised is not free, even without a spec entry.
+func allocateDappID(entries []cachev1alpha1.DappInventoryEntry, status []cachev1alpha1.DappInventoryEntryStatus, ref cachev1alpha1.DappRef) (int32, error) {
 	if i := findEntry(entries, ref); i >= 0 {
 		return entries[i].DappID, nil
 	}
 	used := map[int32]bool{}
 	for _, e := range entries {
 		used[e.DappID] = true
+	}
+	for _, st := range status {
+		if st.Registered || st.Advertised {
+			used[st.DappID] = true
+		}
 	}
 	for id := minDappID; id <= maxDappID; id++ {
 		if !used[id] {
@@ -128,7 +134,7 @@ func (r *DappManifestReconciler) reconcileInventory(ctx context.Context, dm *cac
 		return nil, entry, err
 	}
 	ref := cachev1alpha1.DappRef{Namespace: dm.Namespace, Name: dm.Name}
-	id, err := allocateDappID(inv.Spec.Entries, ref)
+	id, err := allocateDappID(inv.Spec.Entries, inv.Status.Entries, ref)
 	if err != nil {
 		return nil, entry, err
 	}

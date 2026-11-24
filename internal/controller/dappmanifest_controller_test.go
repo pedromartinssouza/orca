@@ -68,27 +68,43 @@ var _ = Describe("DappManifest Controller", func() {
 			}
 		}
 
-		// cleanupDappManifest deletes dm and its Flux objects (envtest has no GC).
-		// Deletion logic lands in Task 5, so the finalizer is removed by hand.
-		cleanupDappManifest := func(key types.NamespacedName) {
-			dm := &cachev1alpha1.DappManifest{}
-			if err := k8sClient.Get(ctx, key, dm); err == nil {
-				Expect(k8sClient.Delete(ctx, dm)).To(Succeed())
-				patch := client.MergeFrom(dm.DeepCopy())
-				dm.Finalizers = nil
-				Expect(client.IgnoreNotFound(k8sClient.Patch(ctx, dm, patch))).To(Succeed())
+		reconcileOnce := func(key types.NamespacedName) error {
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			return err
+		}
+
+		// withdrawAll plays the Gateway confirming the un-advertise of every dApp on node-a.
+		withdrawAll := func() {
+			inv := &cachev1alpha1.DappInventory{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "node-a"}, inv); err != nil {
+				return
 			}
+			for i := range inv.Status.Entries {
+				inv.Status.Entries[i].Advertised = false
+			}
+			Expect(k8sClient.Status().Update(ctx, inv)).To(Succeed())
+		}
+
+		// deleteAndReconcile deletes dm and reconciles until the finalizer lets it go.
+		deleteAndReconcile := func(key types.NamespacedName) {
+			dm := &cachev1alpha1.DappManifest{ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace}}
+			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, dm))).To(Succeed())
+			Eventually(func() bool {
+				_ = reconcileOnce(key)
+				return errors.IsNotFound(k8sClient.Get(ctx, key, &cachev1alpha1.DappManifest{}))
+			}).Should(BeTrue())
+		}
+
+		// cleanupDappManifest deletes dm through the finalizer, then its Flux objects (envtest has no GC).
+		cleanupDappManifest := func(key types.NamespacedName) {
+			withdrawAll()
+			deleteAndReconcile(key)
 			for _, obj := range []client.Object{
 				&helmv2.HelmRelease{ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace}},
 				&sourcev1.HelmRepository{ObjectMeta: metav1.ObjectMeta{Name: key.Name + "-helmrepo", Namespace: key.Namespace}},
 			} {
 				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, obj))).To(Succeed())
 			}
-		}
-
-		reconcileOnce := func(key types.NamespacedName) error {
-			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
-			return err
 		}
 
 		// reconcileWithGateway reconciles, marks the Gateway available, and reconciles again.
@@ -202,7 +218,9 @@ var _ = Describe("DappManifest Controller", func() {
 		It("starts a reused dApp ID above the stale Gateway status generation", func() {
 			inv := &cachev1alpha1.DappInventory{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}
 			Expect(k8sClient.Create(ctx, inv)).To(Succeed())
-			setGatewayStatus(1)
+			// A withdrawn previous holder: the ID is free, but its status generation is left behind.
+			inv.Status.Entries = []cachev1alpha1.DappInventoryEntryStatus{{DappID: 1, Generation: 1}}
+			Expect(k8sClient.Status().Update(ctx, inv)).To(Succeed())
 
 			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
 			entry := getEntry(namespacedName)
@@ -351,6 +369,51 @@ var _ = Describe("DappManifest Controller", func() {
 			Expect(getEntry(other)).To(Equal(second))
 			getSecret(currentSecretName(namespacedName))
 			getSecret(currentSecretName(other))
+		})
+
+		It("waits for the Gateway to withdraw before removing the finalizer", func() {
+			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
+			setGatewayStatus(getEntry(namespacedName).Generation)
+			secretName := currentSecretName(namespacedName)
+
+			Expect(k8sClient.Delete(ctx, getDM(namespacedName))).To(Succeed())
+			Expect(reconcileOnce(namespacedName)).To(Succeed())
+			Expect(getInventory().Spec.Entries).To(BeEmpty())
+			ready := findCondition(getDM(namespacedName).Status.Conditions, "Ready")
+			Expect(ready).NotTo(BeNil())
+			Expect(ready.Reason).To(Equal("Deleting"))
+			getSecret(secretName)
+
+			withdrawAll()
+			Expect(reconcileOnce(namespacedName)).To(Succeed())
+			err := k8sClient.Get(ctx, namespacedName, &cachev1alpha1.DappManifest{})
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: secretName, Namespace: targetNS}, &corev1.Secret{})
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "node-a"}, &cachev1alpha1.DappInventory{})
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("deletes a never-advertised dApp without waiting", func() {
+			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
+
+			Expect(k8sClient.Delete(ctx, getDM(namespacedName))).To(Succeed())
+			Expect(reconcileOnce(namespacedName)).To(Succeed())
+			err := k8sClient.Get(ctx, namespacedName, &cachev1alpha1.DappManifest{})
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("keeps the inventory while another dApp remains on the node", func() {
+			second := types.NamespacedName{Name: resourceName + "-2", Namespace: "default"}
+			Expect(k8sClient.Create(ctx, newDappManifest(second))).To(Succeed())
+			DeferCleanup(cleanupDappManifest, second)
+			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
+			Expect(reconcileOnce(second)).To(Succeed())
+
+			deleteAndReconcile(namespacedName)
+			entries := getInventory().Spec.Entries
+			Expect(entries).To(HaveLen(1))
+			Expect(entries[0].Dapp.Name).To(Equal(second.Name))
 		})
 
 		It("fails with InventoryUpdateFailed when the node is full", func() {
