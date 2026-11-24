@@ -22,11 +22,13 @@ kubectl --context "$KIND_CONTEXT" create namespace "$DAPP_TARGET_NS" \
 
 kubectl --context "$KIND_CONTEXT" apply -f ../validation/dapp-sample.yaml
 
-log "Waiting for dapp-sample DappManifest to become Ready (up to 3m)..."
+# Ready=True also needs the Gateway RAN Function to register and advertise the dApp,
+# and the Gateway isn't built yet, so wait for Installed only.
+log "Waiting for dapp-sample DappManifest to become Installed (up to 3m)..."
 for _ in $(seq 1 36); do
-  READY=$(kubectl --context "$KIND_CONTEXT" get dappmanifest dapp-sample -n "$ORCA_NAMESPACE" \
-    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
-  [ "$READY" = "True" ] && break
+  INSTALLED=$(kubectl --context "$KIND_CONTEXT" get dappmanifest dapp-sample -n "$ORCA_NAMESPACE" \
+    -o jsonpath='{.status.conditions[?(@.type=="Installed")].status}' 2>/dev/null || true)
+  [ "$INSTALLED" = "True" ] && break
   sleep 5
 done
 

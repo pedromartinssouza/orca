@@ -35,8 +35,14 @@ Apply it, and ORCA takes care of the rest:
 
 ```sh
 kubectl apply -f my-dapp.yaml
-kubectl get dappmanifest my-dapp   # READY=True, INSTALLED=True once live
+kubectl get dappmanifest my-dapp   # INSTALLED=True once deployed; READY=True needs the Gateway (below)
 ```
+
+ORCA first starts a Gateway RAN Function pod on the target node and deploys the dApp only once the DappManifest shows `GatewayReady=True`. `Ready=True` additionally needs the Gateway to register the dApp over E3 and advertise it to the Near-RT RIC (conditions `Registered` and `Advertised`). The Gateway isn't built yet, so until it exists you can pass a placeholder image to `--gateway-image` (chart value `gateway.image`), for example `registry.k8s.io/pause:3.10`. The dApp then reaches `Installed=True`, and `Ready` stays `False`.
+
+### Breaking change in v1alpha1
+
+`spec.nodeSelector` was removed. `spec.nodeName` and `spec.namespace` are now required and immutable. Existing DappManifests must be deleted and recreated.
 
 ## Installing ORCA
 
@@ -130,8 +136,9 @@ of the pinned versions/patches, and issues found and fixed along the way).
    ./06-deploy-sample-dapp.sh
    ```
    Applies a sample `DappManifest` CR and waits for it to reach
-   `Ready`/`Installed`, exercising the full ORCA → FluxCD → HelmRelease →
-   pod path.
+   `Installed`, exercising the full ORCA → FluxCD → HelmRelease →
+   pod path. `Ready` stays `False` until the Gateway RAN Function exists
+   (see above).
 
 Or run all six in order in one go:
 
@@ -146,7 +153,7 @@ cd testbed
 for ns in ricplt ricinfra orca-system nonrtric dapp-sample-system; do
   kubectl get pods -n "$ns"
 done
-kubectl get dappmanifest dapp-sample -n orca-system      # READY=True, INSTALLED=True
+kubectl get dappmanifest dapp-sample -n orca-system      # INSTALLED=True (READY=False until the Gateway exists)
 kubectl exec -n nonrtric policymanagementservice-0 -- \
   wget -qO- http://localhost:8081/a1-policy/v2/rics       # near-rt-ric-1, state AVAILABLE
 ```
