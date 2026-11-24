@@ -65,7 +65,13 @@ How the token reaches the dApp:
 Why a token and not just a name:
 - A name is enough to map a connection to an inventory entry. It does not stop any process that reaches the Gateway's IPC channel from claiming to be that dApp, receiving its ID, subscribing to telemetry, and sending control actions.
 - E3 is a trust boundary between third-party code and the RAN.
-- On update, ORCA rotates the token together with the generation, so the old pod is rejected during a rolling update. The SMO's Deployment ID (nGRG deploy use case, steps 9 and 10) is a separate identifier.
+- On update, ORCA rotates the token, so the old pod is rejected during a rolling update.
+
+How rotation works:
+- **Triggers.** ORCA rotates the token when one of these holds: the entry is missing, the current token Secret is missing, the DappManifest's generation changed, or the Secret's token does not match the stored hash. ORCA reads Secrets directly from the API server, not from a cache, so a stale cache cannot trigger a rotation by mistake.
+- **A new Secret per rotation.** Each rotation creates a new Secret named `<namespace>-<name>-e3-<first 10 hex of the hash>`. The Helm value `orca.e3TokenSecret` therefore changes, and Flux rolls the dApp pod. The old pod keeps its old token, which no longer matches, so the Gateway rejects it. The old Secrets of the same dApp are deleted only after the HelmRelease points to the new one.
+- **The entry generation counts rotations.** `DappInventoryEntry.generation` starts at 1 and goes up by 1 on every rotation. `Registered` and `Advertised` count only when the Gateway's status generation matches, so they reset on every rotation, not only on spec changes.
+- **`spec.namespace` is immutable**, like `nodeName`, so no Secret can be orphaned in an earlier namespace. The SMO's Deployment ID (nGRG deploy use case, steps 9 and 10) is a separate identifier.
 
 ## Gateway deployment
 
@@ -120,7 +126,7 @@ sequenceDiagram
 
 ### Update
 
-Bump the entry generation in DappInventory before updating the HelmRelease, so the Gateway can tell the new instance from the old one.
+Rotate the token, which bumps the entry generation in DappInventory, before updating the HelmRelease, so the Gateway can tell the new instance from the old one.
 
 ## DappManifest status
 
