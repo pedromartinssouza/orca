@@ -11,7 +11,8 @@ spec:
     chartName: dapp-sample-app
     version: "0.1.0"
     repoURL: oci://ghcr.io/pedromartinssouza/charts
-  nodeName: o-du
+  # Must be the exact name of the target O-DU/O-CU node (kubectl get nodes -l type=o-du).
+  nodeName: ocudu-sandbox-worker2
   tolerations:
   - key: dedicated
     operator: Equal

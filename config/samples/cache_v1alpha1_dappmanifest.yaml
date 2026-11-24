@@ -15,7 +15,8 @@ spec:
     version: ">=6.0.0"
     repoURL: https://stefanprodan.github.io/podinfo
   # nodeName pins the dApp to one exact node (immutable once set).
-  nodeName: o-du
+  # Must be the exact name of the target O-DU/O-CU node (kubectl get nodes -l type=o-du).
+  nodeName: ocudu-sandbox-worker2
   tolerations:
   - key: dedicated
     operator: Equal
