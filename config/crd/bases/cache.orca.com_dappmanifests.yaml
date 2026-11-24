@@ -176,7 +176,11 @@ spec:
                   type: object
                 type: array
               dappId:
+                description: DappID is the dApp ID reserved on the node; 0 before
+                  assignment.
                 format: int32
+                maximum: 100
+                minimum: 0
                 type: integer
               helmReleaseRef:
                 type: string

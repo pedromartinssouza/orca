@@ -52,8 +52,11 @@ type DappManifestStatus struct {
 	Conditions        []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 	HelmRepositoryRef string             `json:"helmRepositoryRef,omitempty"`
 	HelmReleaseRef    string             `json:"helmReleaseRef,omitempty"`
-	DappID            int32              `json:"dappId,omitempty"`
-	NodeName          string             `json:"nodeName,omitempty"`
+	// DappID is the dApp ID reserved on the node; 0 before assignment.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	DappID   int32  `json:"dappId,omitempty"`
+	NodeName string `json:"nodeName,omitempty"`
 }
 
 // +kubebuilder:object:root=true

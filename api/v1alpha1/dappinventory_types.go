@@ -22,38 +22,57 @@ import (
 
 // DappRef identifies the DappManifest that owns an inventory entry.
 type DappRef struct {
+	// Namespace of the DappManifest.
 	Namespace string `json:"namespace"`
-	Name      string `json:"name"`
+	// Name of the DappManifest.
+	Name string `json:"name"`
 }
 
-// DappInventoryEntry is one dApp admitted on the node.
+// DappInventoryEntry is one dApp admitted on the node. ORCA writes it.
 type DappInventoryEntry struct {
+	// Dapp is the DappManifest this entry belongs to.
 	Dapp DappRef `json:"dapp"`
+	// DappID is the E3 dApp ID reserved for the dApp on this node, unique per node.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=100
-	DappID    int32  `json:"dappId"`
+	DappID int32 `json:"dappId"`
+	// TokenHash is the SHA-256 hex hash of the dApp's current E3 token. The token itself
+	// is only in a Secret mounted into the dApp pod.
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{64}$`
 	TokenHash string `json:"tokenHash"`
-	// Generation is a rotation counter, bumped on every token rotation.
+	// Generation is the rotation counter: it starts at 1 and is bumped on every token rotation.
+	// The Gateway reports Registered and Advertised for this generation.
 	Generation int64 `json:"generation"`
 }
 
-// DappInventorySpec is the desired per-node dApp inventory.
+// DappInventorySpec is the desired per-node dApp inventory, written by ORCA.
 type DappInventorySpec struct {
+	// Entries are the dApps admitted on the node. A dApp that leaves the spec is to be
+	// withdrawn by the Gateway.
 	// +listType=map
 	// +listMapKey=dappId
 	Entries []DappInventoryEntry `json:"entries,omitempty"`
 }
 
-// DappInventoryEntryStatus is the observed state of one entry.
+// DappInventoryEntryStatus is the Gateway's observed state of one dApp ID.
 type DappInventoryEntryStatus struct {
-	DappID     int32 `json:"dappId"`
+	// DappID is the dApp ID this status entry reports on.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	DappID int32 `json:"dappId"`
+	// Generation is the spec entry generation the Gateway observed.
 	Generation int64 `json:"generation"`
-	Registered bool  `json:"registered"`
-	Advertised bool  `json:"advertised"`
+	// Registered is true once the Gateway accepted the dApp's E3 Setup with the reserved ID.
+	Registered bool `json:"registered"`
+	// Advertised is true once the RIC acknowledged the RIC Service Update that adds the dApp.
+	Advertised bool `json:"advertised"`
 }
 
-// DappInventoryStatus is the observed per-node inventory.
+// DappInventoryStatus is the observed per-node inventory, written by the Gateway.
 type DappInventoryStatus struct {
+	// Entries hold one entry per dApp ID the Gateway knows of. The Gateway writes an entry
+	// before it accepts an E3 Setup for the ID, and removes it only after it withdrew the
+	// dApp from the RIC, which confirms the withdrawal to ORCA.
 	// +listType=map
 	// +listMapKey=dappId
 	Entries []DappInventoryEntryStatus `json:"entries,omitempty"`

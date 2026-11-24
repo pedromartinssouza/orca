@@ -38,35 +38,48 @@ spec:
           metadata:
             type: object
           spec:
-            description: DappInventorySpec is the desired per-node dApp inventory.
+            description: DappInventorySpec is the desired per-node dApp inventory,
+              written by ORCA.
             properties:
               entries:
+                description: |-
+                  Entries are the dApps admitted on the node. A dApp that leaves the spec is to be
+                  withdrawn by the Gateway.
                 items:
                   description: DappInventoryEntry is one dApp admitted on the node.
+                    ORCA writes it.
                   properties:
                     dapp:
-                      description: DappRef identifies the DappManifest that owns an
-                        inventory entry.
+                      description: Dapp is the DappManifest this entry belongs to.
                       properties:
                         name:
+                          description: Name of the DappManifest.
                           type: string
                         namespace:
+                          description: Namespace of the DappManifest.
                           type: string
                       required:
                       - name
                       - namespace
                       type: object
                     dappId:
+                      description: DappID is the E3 dApp ID reserved for the dApp
+                        on this node, unique per node.
                       format: int32
                       maximum: 100
                       minimum: 1
                       type: integer
                     generation:
-                      description: Generation is a rotation counter, bumped on every
-                        token rotation.
+                      description: |-
+                        Generation is the rotation counter: it starts at 1 and is bumped on every token rotation.
+                        The Gateway reports Registered and Advertised for this generation.
                       format: int64
                       type: integer
                     tokenHash:
+                      description: |-
+                        TokenHash is the SHA-256 hex hash of the dApp's current E3 token. The token itself
+                        is only in a Secret mounted into the dApp pod.
+                      pattern: ^[0-9a-f]{64}$
                       type: string
                   required:
                   - dapp
@@ -80,22 +93,37 @@ spec:
                 x-kubernetes-list-type: map
             type: object
           status:
-            description: DappInventoryStatus is the observed per-node inventory.
+            description: DappInventoryStatus is the observed per-node inventory, written
+              by the Gateway.
             properties:
               entries:
+                description: |-
+                  Entries hold one entry per dApp ID the Gateway knows of. The Gateway writes an entry
+                  before it accepts an E3 Setup for the ID, and removes it only after it withdrew the
+                  dApp from the RIC, which confirms the withdrawal to ORCA.
                 items:
-                  description: DappInventoryEntryStatus is the observed state of one
-                    entry.
+                  description: DappInventoryEntryStatus is the Gateway's observed
+                    state of one dApp ID.
                   properties:
                     advertised:
+                      description: Advertised is true once the RIC acknowledged the
+                        RIC Service Update that adds the dApp.
                       type: boolean
                     dappId:
+                      description: DappID is the dApp ID this status entry reports
+                        on.
                       format: int32
+                      maximum: 100
+                      minimum: 1
                       type: integer
                     generation:
+                      description: Generation is the spec entry generation the Gateway
+                        observed.
                       format: int64
                       type: integer
                     registered:
+                      description: Registered is true once the Gateway accepted the
+                        dApp's E3 Setup with the reserved ID.
                       type: boolean
                   required:
                   - advertised
