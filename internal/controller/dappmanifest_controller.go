@@ -188,12 +188,14 @@ func (r *DappManifestReconciler) reconcileDelete(ctx context.Context, dm *cachev
 				return requeueOnConflict(err)
 			}
 		}
-		if awaitingWithdraw(inv, dm.Status.DappID) {
+		// On an emptying node, every deleting dApp holds until the Gateway has no status entry left,
+		// so the last one deletes the inventory and no orphan ID is left behind with the Gateway.
+		if awaitingWithdraw(inv, dm.Status.DappID) || (len(inv.Spec.Entries) == 0 && len(inv.Status.Entries) > 0) {
 			// The inventory watch triggers the next reconcile.
 			r.setReadyCondition(dm, metav1.ConditionFalse, "WaitingForWithdraw", "Waiting for the Gateway to withdraw the dApp")
 			return requeueOnConflict(r.Status().Update(ctx, dm))
 		}
-		r.setCondition(dm, "Advertised", metav1.ConditionFalse, "Withdrawn", "The Gateway withdrew the dApp from the RIC")
+		r.setCondition(dm, "Advertised", metav1.ConditionFalse, "Withdrawn", "The Gateway withdrew the dApp and removed its status entry")
 		if err := r.Status().Update(ctx, dm); err != nil {
 			return requeueOnConflict(err)
 		}
@@ -202,8 +204,7 @@ func (r *DappManifestReconciler) reconcileDelete(ctx context.Context, dm *cachev
 	if err := r.pruneTokenSecrets(ctx, dm, ""); err != nil {
 		return ctrl.Result{}, err
 	}
-	if invFound && len(inv.Spec.Entries) == 0 && !anyAdvertised(inv) {
-		// The Gateway must outlive every advertised dApp, including other deleting ones.
+	if invFound && len(inv.Spec.Entries) == 0 {
 		// The precondition keeps an entry added since our read from being deleted with the inventory.
 		err := r.Delete(ctx, inv, client.Preconditions{ResourceVersion: &inv.ResourceVersion})
 		if client.IgnoreNotFound(err) != nil {
@@ -215,8 +216,9 @@ func (r *DappManifestReconciler) reconcileDelete(ctx context.Context, dm *cachev
 	return requeueOnConflict(client.IgnoreNotFound(r.Update(ctx, dm)))
 }
 
-// awaitingWithdraw reports whether the Gateway still advertises id for the deleting dApp. Once
-// another spec entry holds id, the ID was withdrawn and reallocated, so it is no longer ours.
+// awaitingWithdraw reports whether the Gateway has not yet confirmed the withdrawal of id, which
+// it does by removing the id's status entry. Once another spec entry holds id, the ID was
+// withdrawn and reallocated (see allocateDappID), so it is no longer ours.
 func awaitingWithdraw(inv *cachev1alpha1.DappInventory, id int32) bool {
 	if id == 0 {
 		return false
@@ -226,17 +228,7 @@ func awaitingWithdraw(inv *cachev1alpha1.DappInventory, id int32) bool {
 			return false
 		}
 	}
-	es := findEntryStatus(inv.Status.Entries, id)
-	return es != nil && es.Advertised
-}
-
-func anyAdvertised(inv *cachev1alpha1.DappInventory) bool {
-	for _, st := range inv.Status.Entries {
-		if st.Advertised {
-			return true
-		}
-	}
-	return false
+	return findEntryStatus(inv.Status.Entries, id) != nil
 }
 
 // syncLifecycleConditions reports Registered and Advertised from the Gateway's status for the

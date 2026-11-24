@@ -54,22 +54,16 @@ func TestAllocateDappIDFull(t *testing.T) {
 	}
 }
 
-func TestAllocateDappIDSkipsInUseStatus(t *testing.T) {
+func TestAllocateDappIDSkipsIDsInStatus(t *testing.T) {
 	es := []cachev1alpha1.DappInventoryEntry{{Dapp: ref("a"), DappID: 1}}
 	for _, st := range []cachev1alpha1.DappInventoryEntryStatus{
 		{DappID: 2, Advertised: true},
 		{DappID: 2, Registered: true},
+		{DappID: 2}, // add in flight or not yet withdrawn: presence alone holds the ID
 	} {
 		if id, err := allocateDappID(es, []cachev1alpha1.DappInventoryEntryStatus{st}, ref("new")); err != nil || id != 3 {
 			t.Fatalf("%+v: got %d, %v", st, id, err)
 		}
-	}
-}
-
-func TestAllocateDappIDReusesWithdrawnStatus(t *testing.T) {
-	st := []cachev1alpha1.DappInventoryEntryStatus{{DappID: 1, Generation: 3}}
-	if id, err := allocateDappID(nil, st, ref("new")); err != nil || id != 1 {
-		t.Fatalf("got %d, %v", id, err)
 	}
 }
 

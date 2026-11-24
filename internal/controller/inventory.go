@@ -36,8 +36,10 @@ import (
 
 const minDappID, maxDappID int32 = 1, 100
 
-// allocateDappID returns the existing ID for ref, or the lowest free ID on the node. An ID the
-// Gateway still reports as Registered or Advertised is not free, even without a spec entry.
+// allocateDappID returns the existing ID for ref, or the lowest free ID on the node. An ID with a
+// Gateway status entry is not free, even without a spec entry: the Gateway removes the status
+// entry only after it withdrew the dApp. awaitingWithdraw relies on this, so a spec entry of
+// another dApp with the same ID means the deleting dApp was already withdrawn.
 func allocateDappID(entries []cachev1alpha1.DappInventoryEntry, status []cachev1alpha1.DappInventoryEntryStatus, ref cachev1alpha1.DappRef) (int32, error) {
 	if i := findEntry(entries, ref); i >= 0 {
 		return entries[i].DappID, nil
@@ -47,9 +49,7 @@ func allocateDappID(entries []cachev1alpha1.DappInventoryEntry, status []cachev1
 		used[e.DappID] = true
 	}
 	for _, st := range status {
-		if st.Registered || st.Advertised {
-			used[st.DappID] = true
-		}
+		used[st.DappID] = true
 	}
 	for id := minDappID; id <= maxDappID; id++ {
 		if !used[id] {
@@ -156,12 +156,7 @@ func (r *DappManifestReconciler) reconcileInventory(ctx context.Context, dm *cac
 		entry.Generation = inv.Spec.Entries[i].Generation + 1
 		inv.Spec.Entries[i] = entry
 	} else {
-		// A reused ID must not match a stale Gateway status left by its previous holder.
-		for _, st := range inv.Status.Entries {
-			if st.DappID == id && st.Generation >= entry.Generation {
-				entry.Generation = st.Generation + 1
-			}
-		}
+		// allocateDappID never hands out an ID with a status entry, so no stale status can match.
 		inv.Spec.Entries = append(inv.Spec.Entries, entry)
 	}
 	if err := r.Update(ctx, inv); err != nil {

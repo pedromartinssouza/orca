@@ -73,15 +73,14 @@ var _ = Describe("DappManifest Controller", func() {
 			return err
 		}
 
-		// withdrawAll plays the Gateway confirming the un-advertise of every dApp on node-a.
+		// withdrawAll plays the Gateway confirming the withdrawal of every dApp on node-a,
+		// which it does by removing their status entries.
 		withdrawAll := func() {
 			inv := &cachev1alpha1.DappInventory{}
 			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "node-a"}, inv); err != nil {
 				return
 			}
-			for i := range inv.Status.Entries {
-				inv.Status.Entries[i].Advertised = false
-			}
+			inv.Status.Entries = nil
 			Expect(k8sClient.Status().Update(ctx, inv)).To(Succeed())
 		}
 
@@ -174,13 +173,14 @@ var _ = Describe("DappManifest Controller", func() {
 			return c.Reason
 		}
 
-		// setAdvertised plays the Gateway: one status entry per dApp ID, Registered and Advertised as given.
-		setAdvertised := func(adv map[int32]bool) {
+		// setAdvertisedIDs plays the Gateway: one Registered and Advertised status entry per ID,
+		// and none for the IDs it has withdrawn.
+		setAdvertisedIDs := func(ids ...int32) {
 			inv := getInventory()
 			inv.Status.Entries = nil
-			for id, a := range adv {
+			for _, id := range ids {
 				inv.Status.Entries = append(inv.Status.Entries,
-					cachev1alpha1.DappInventoryEntryStatus{DappID: id, Generation: 1, Registered: true, Advertised: a})
+					cachev1alpha1.DappInventoryEntryStatus{DappID: id, Generation: 1, Registered: true, Advertised: true})
 			}
 			Expect(k8sClient.Status().Update(ctx, inv)).To(Succeed())
 		}
@@ -230,20 +230,6 @@ var _ = Describe("DappManifest Controller", func() {
 			dm := newDappManifest(types.NamespacedName{Name: resourceName + "-nons", Namespace: "default"})
 			dm.Spec.Namespace = ""
 			Expect(k8sClient.Create(ctx, dm)).To(MatchError(ContainSubstring("spec.namespace")))
-		})
-
-		It("starts a reused dApp ID above the stale Gateway status generation", func() {
-			inv := &cachev1alpha1.DappInventory{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}
-			Expect(k8sClient.Create(ctx, inv)).To(Succeed())
-			// A withdrawn previous holder: the ID is free, but its status generation is left behind.
-			inv.Status.Entries = []cachev1alpha1.DappInventoryEntryStatus{{DappID: 1, Generation: 1}}
-			Expect(k8sClient.Status().Update(ctx, inv)).To(Succeed())
-
-			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
-			entry := getEntry(namespacedName)
-			Expect(entry.DappID).To(Equal(int32(1)))
-			Expect(entry.Generation).To(Equal(int64(2)))
-			Expect(condStatus(getDM(namespacedName), "Registered")).To(Equal(metav1.ConditionFalse))
 		})
 
 		It("assigns a dApp ID, stores only the token hash, and creates the Secret", func() {
@@ -436,13 +422,31 @@ var _ = Describe("DappManifest Controller", func() {
 			Expect(entries[0].Dapp.Name).To(Equal(second.Name))
 		})
 
-		It("keeps the inventory while another deleting dApp is still advertised", func() {
+		It("waits for the status entry to go when deleted while the add is in flight", func() {
+			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
+			inv := getInventory()
+			inv.Status.Entries = []cachev1alpha1.DappInventoryEntryStatus{
+				{DappID: 1, Generation: getEntry(namespacedName).Generation, Registered: true, Advertised: false}}
+			Expect(k8sClient.Status().Update(ctx, inv)).To(Succeed())
+
+			Expect(k8sClient.Delete(ctx, getDM(namespacedName))).To(Succeed())
+			Expect(reconcileOnce(namespacedName)).To(Succeed())
+			Expect(reconcileOnce(namespacedName)).To(Succeed())
+			Expect(readyReason(namespacedName)).To(Equal("WaitingForWithdraw"))
+
+			withdrawAll()
+			Expect(reconcileOnce(namespacedName)).To(Succeed())
+			err := k8sClient.Get(ctx, namespacedName, &cachev1alpha1.DappManifest{})
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("holds every deleting dApp on an emptying node until the Gateway status is empty", func() {
 			second := types.NamespacedName{Name: resourceName + "-2", Namespace: "default"}
 			Expect(k8sClient.Create(ctx, newDappManifest(second))).To(Succeed())
 			DeferCleanup(cleanupDappManifest, second)
 			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
 			Expect(reconcileOnce(second)).To(Succeed())
-			setAdvertised(map[int32]bool{1: true, 2: true})
+			setAdvertisedIDs(1, 2)
 
 			Expect(k8sClient.Delete(ctx, getDM(namespacedName))).To(Succeed())
 			Expect(k8sClient.Delete(ctx, getDM(second))).To(Succeed())
@@ -450,19 +454,23 @@ var _ = Describe("DappManifest Controller", func() {
 			Expect(reconcileOnce(second)).To(Succeed())
 			Expect(getInventory().Spec.Entries).To(BeEmpty())
 
-			setAdvertised(map[int32]bool{1: false, 2: true})
+			By("withdrawing only the first dApp")
+			setAdvertisedIDs(2)
 			Expect(reconcileOnce(namespacedName)).To(Succeed())
 			Expect(reconcileOnce(second)).To(Succeed())
-			err := k8sClient.Get(ctx, namespacedName, &cachev1alpha1.DappManifest{})
-			Expect(errors.IsNotFound(err)).To(BeTrue())
-			getInventory()
+			Expect(readyReason(namespacedName)).To(Equal("WaitingForWithdraw"))
 			Expect(readyReason(second)).To(Equal("WaitingForWithdraw"))
+			getInventory()
 
-			setAdvertised(map[int32]bool{1: false, 2: false})
+			By("withdrawing the second dApp")
+			setAdvertisedIDs()
+			Expect(reconcileOnce(namespacedName)).To(Succeed())
 			Expect(reconcileOnce(second)).To(Succeed())
-			err = k8sClient.Get(ctx, second, &cachev1alpha1.DappManifest{})
-			Expect(errors.IsNotFound(err)).To(BeTrue())
-			err = k8sClient.Get(ctx, types.NamespacedName{Name: "node-a"}, &cachev1alpha1.DappInventory{})
+			for _, key := range []types.NamespacedName{namespacedName, second} {
+				err := k8sClient.Get(ctx, key, &cachev1alpha1.DappManifest{})
+				Expect(errors.IsNotFound(err)).To(BeTrue(), key.Name)
+			}
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: "node-a"}, &cachev1alpha1.DappInventory{})
 			Expect(errors.IsNotFound(err)).To(BeTrue())
 		})
 
@@ -473,7 +481,7 @@ var _ = Describe("DappManifest Controller", func() {
 			Expect(reconcileOnce(namespacedName)).To(Succeed())
 			Expect(readyReason(namespacedName)).To(Equal("WaitingForWithdraw"))
 
-			By("the Gateway withdrew ID 1, another dApp took it and is advertised under it")
+			By("the Gateway withdrew ID 1, another dApp took it and registered under it")
 			inv := getInventory()
 			inv.Spec.Entries = append(inv.Spec.Entries, cachev1alpha1.DappInventoryEntry{
 				Dapp: cachev1alpha1.DappRef{Namespace: "other", Name: "newcomer"}, DappID: 1, TokenHash: "x", Generation: 2})
