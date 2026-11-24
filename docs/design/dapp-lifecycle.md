@@ -125,6 +125,14 @@ sequenceDiagram
 4. If it was the last dApp on N, delete DappInventory(N). Garbage collection then removes the Gateway.
 5. Remove the finalizer.
 
+Two more rules keep step 4 safe:
+- **When the inventory is deleted.** Step 4 applies only when the spec is empty and no Gateway status entry is still Advertised. Otherwise another dApp on the node is still waiting for its own un-advertise.
+- **A reused dApp ID.** While a deleting dApp waits, its ID may already belong to another dApp's spec entry. In that case its own withdrawal already happened, so it does not wait.
+
+Known limitations of the delete flow:
+- **Foreground cascade or namespace deletion.** Both remove the HelmRelease, and with it the dApp pod, before the Gateway confirms the un-advertise. This happens with `kubectl delete --cascade=foreground` and when the DappManifest's namespace is deleted. Ordinary (background) deletion of a DappManifest is safe. Fixing this would mean dropping the HelmRelease ownerReference and deleting it explicitly after the wait, or holding a finalizer on the HelmRelease.
+- **A Gateway that dies while a dApp is advertised.** Deletion blocks until the Gateway's status is cleared. The DappManifest shows `Ready=False` with reason `WaitingForWithdraw` meanwhile.
+
 ### Update
 
 Rotate the token, which bumps the entry generation in DappInventory, before updating the HelmRelease, so the Gateway can tell the new instance from the old one.
