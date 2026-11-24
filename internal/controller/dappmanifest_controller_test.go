@@ -293,6 +293,29 @@ var _ = Describe("DappManifest Controller", func() {
 			}
 		})
 
+		It("clears Registered and Advertised when the Gateway becomes unavailable", func() {
+			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
+			setGatewayStatus(getEntry(namespacedName).Generation)
+			Expect(reconcileOnce(namespacedName)).To(Succeed())
+			Expect(condStatus(getDM(namespacedName), "Registered")).To(Equal(metav1.ConditionTrue))
+
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, gatewayKey, dep)).To(Succeed())
+			dep.Status = appsv1.DeploymentStatus{ObservedGeneration: dep.Generation}
+			Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
+
+			Expect(reconcileOnce(namespacedName)).To(Succeed())
+			dm := getDM(namespacedName)
+			for _, t := range []string{"Registered", "Advertised", "Ready"} {
+				c := findCondition(dm.Status.Conditions, t)
+				Expect(c).NotTo(BeNil(), t)
+				Expect(c.Status).To(Equal(metav1.ConditionFalse), t)
+			}
+			for _, t := range []string{"Registered", "Advertised"} {
+				Expect(findCondition(dm.Status.Conditions, t).Reason).To(Equal("GatewayNotReady"), t)
+			}
+		})
+
 		It("rotates the token into a new Secret when the spec changes", func() {
 			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
 			before := getEntry(namespacedName)
@@ -510,7 +533,7 @@ var _ = Describe("DappManifest Controller", func() {
 			By("the Gateway withdrew ID 1, another dApp took it and registered under it")
 			inv := getInventory()
 			inv.Spec.Entries = append(inv.Spec.Entries, cachev1alpha1.DappInventoryEntry{
-				Dapp: cachev1alpha1.DappRef{Namespace: "other", Name: "newcomer"}, DappID: 1, TokenHash: "x", Generation: 2})
+				Dapp: cachev1alpha1.DappRef{Namespace: "other", Name: "newcomer"}, DappID: 1, TokenHash: hashToken("x"), Generation: 2})
 			Expect(k8sClient.Update(ctx, inv)).To(Succeed())
 
 			Expect(reconcileOnce(namespacedName)).To(Succeed())
@@ -524,7 +547,7 @@ var _ = Describe("DappManifest Controller", func() {
 			for id := int32(1); id <= 100; id++ {
 				inv.Spec.Entries = append(inv.Spec.Entries, cachev1alpha1.DappInventoryEntry{
 					Dapp:   cachev1alpha1.DappRef{Namespace: "other", Name: fmt.Sprintf("d%d", id)},
-					DappID: id, TokenHash: "x", Generation: 1,
+					DappID: id, TokenHash: hashToken("x"), Generation: 1,
 				})
 			}
 			Expect(k8sClient.Create(ctx, inv)).To(Succeed())

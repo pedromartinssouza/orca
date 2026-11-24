@@ -26,6 +26,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -196,9 +197,10 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "d1611b6d.orca.com",
-		// Cache only ORCA's token Secrets, not every Secret in the cluster.
+		// Cache only ORCA's token Secrets and Gateway Deployments, not every Secret and Deployment in the cluster.
 		Cache: cache.Options{ByObject: map[client.Object]cache.ByObject{
-			&corev1.Secret{}: {Label: labels.SelectorFromSet(labels.Set{controller.ManagedByLabel: "orca"})},
+			&corev1.Secret{}:     {Label: labels.SelectorFromSet(labels.Set{controller.ManagedByLabel: "orca"})},
+			&appsv1.Deployment{}: {Label: labels.SelectorFromSet(labels.Set{controller.GatewayNameLabel: controller.GatewayNameValue})},
 		}},
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the

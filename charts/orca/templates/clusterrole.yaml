@@ -52,15 +52,16 @@ rules:
 - apiGroups:
   - cache.orca.com
   resources:
-  - dappinventories/status
-  verbs:
-  - get
-- apiGroups:
-  - cache.orca.com
-  resources:
+  - dappinventories/finalizers
   - dappmanifests/finalizers
   verbs:
   - update
+- apiGroups:
+  - cache.orca.com
+  resources:
+  - dappinventories/status
+  verbs:
+  - get
 - apiGroups:
   - cache.orca.com
   resources:

@@ -127,12 +127,8 @@ func (r *DappManifestReconciler) getOrCreateInventory(ctx context.Context, node 
 // its current Secret is missing, stale (other DappManifest generation) or does not match the
 // stored hash. The inventory is written before the Secret, so a failed Secret write is seen
 // as a missing Secret on the next reconcile.
-func (r *DappManifestReconciler) reconcileInventory(ctx context.Context, dm *cachev1alpha1.DappManifest) (*cachev1alpha1.DappInventory, cachev1alpha1.DappInventoryEntry, error) {
+func (r *DappManifestReconciler) reconcileInventory(ctx context.Context, dm *cachev1alpha1.DappManifest, inv *cachev1alpha1.DappInventory) (*cachev1alpha1.DappInventory, cachev1alpha1.DappInventoryEntry, error) {
 	var entry cachev1alpha1.DappInventoryEntry
-	inv, err := r.getOrCreateInventory(ctx, dm.Spec.NodeName)
-	if err != nil {
-		return nil, entry, err
-	}
 	ref := cachev1alpha1.DappRef{Namespace: dm.Namespace, Name: dm.Name}
 	id, err := allocateDappID(inv.Spec.Entries, inv.Status.Entries, ref)
 	if err != nil {

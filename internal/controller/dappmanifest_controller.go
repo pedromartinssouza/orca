@@ -70,6 +70,7 @@ type DappManifestReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cache.orca.com,resources=dappinventories,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cache.orca.com,resources=dappinventories/status,verbs=get
+// +kubebuilder:rbac:groups=cache.orca.com,resources=dappinventories/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;create
 
@@ -96,7 +97,8 @@ func (r *DappManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, nil
 	}
 	fail := func(reason string, err error) (ctrl.Result, error) {
-		if apierrors.IsConflict(err) {
+		// AlreadyExists is a concurrent worker creating the same inventory or Gateway: retry.
+		if apierrors.IsConflict(err) || apierrors.IsAlreadyExists(err) {
 			return ctrl.Result{Requeue: true}, nil
 		}
 		log.Error(err, "reconcile failed", "reason", reason)
@@ -115,9 +117,6 @@ func (r *DappManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	inv, err := r.getOrCreateInventory(ctx, dm.Spec.NodeName)
-	if apierrors.IsAlreadyExists(err) {
-		return ctrl.Result{Requeue: true}, nil
-	}
 	if err != nil {
 		return fail("InventoryUpdateFailed", err)
 	}
@@ -127,14 +126,17 @@ func (r *DappManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return fail("GatewayFailed", err)
 	}
 	if !ready {
-		// The Gateway Deployment watch triggers the next reconcile.
+		// The Gateway Deployment watch triggers the next reconcile. Without a Gateway there is
+		// no E3 session, so earlier Registered and Advertised no longer hold.
 		r.setCondition(dm, "GatewayReady", metav1.ConditionFalse, "Pending", "Waiting for the Gateway on node "+dm.Spec.NodeName)
+		r.setCondition(dm, "Registered", metav1.ConditionFalse, "GatewayNotReady", "The Gateway on node "+dm.Spec.NodeName+" is not ready")
+		r.setCondition(dm, "Advertised", metav1.ConditionFalse, "GatewayNotReady", "The Gateway on node "+dm.Spec.NodeName+" is not ready")
 		r.setReadyCondition(dm, metav1.ConditionFalse, "Pending", "Waiting for the Gateway")
 		return writeStatus()
 	}
 	r.setCondition(dm, "GatewayReady", metav1.ConditionTrue, "Ready", "The Gateway on node "+dm.Spec.NodeName+" is ready")
 
-	inv, entry, err := r.reconcileInventory(ctx, dm)
+	inv, entry, err := r.reconcileInventory(ctx, dm, inv)
 	if err != nil {
 		return fail("InventoryUpdateFailed", err)
 	}
@@ -434,7 +436,7 @@ func (r *DappManifestReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 	gatewayLabel, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
-		MatchLabels: map[string]string{"app.kubernetes.io/name": "orca-gateway"},
+		MatchLabels: map[string]string{GatewayNameLabel: GatewayNameValue},
 	})
 	if err != nil {
 		return err

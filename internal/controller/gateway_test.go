@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -80,7 +81,53 @@ var _ = Describe("ensureGateway", func() {
 		_, err := r.ensureGateway(ctx, inv)
 		Expect(err).NotTo(HaveOccurred())
 	})
+
+	It("adopts the Gateway Deployment of a recreated inventory", func() {
+		old := newInventory("node-x")
+		_, err := r.ensureGateway(ctx, old)
+		Expect(err).NotTo(HaveOccurred())
+
+		// envtest has no GC, so the Deployment outlives the deleted inventory.
+		Expect(k8sClient.Delete(ctx, old)).To(Succeed())
+		inv := newInventory("node-x")
+		Expect(inv.UID).NotTo(Equal(old.UID))
+
+		_, err = r.ensureGateway(ctx, inv)
+		Expect(err).NotTo(HaveOccurred())
+		dep := &appsv1.Deployment{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: gatewayName("node-x"), Namespace: "orca-system"}, dep)).To(Succeed())
+		Expect(metav1.GetControllerOf(dep).UID).To(Equal(inv.UID))
+	})
+
+	It("does not update an unchanged Gateway Deployment", func() {
+		inv := newInventory("node-y")
+		_, err := r.ensureGateway(ctx, inv)
+		Expect(err).NotTo(HaveOccurred())
+		key := types.NamespacedName{Name: gatewayName("node-y"), Namespace: "orca-system"}
+		before := &appsv1.Deployment{}
+		Expect(k8sClient.Get(ctx, key, before)).To(Succeed())
+
+		// The API server drops a no-op Update, so also count the Updates sent.
+		counting := &updateCounter{Client: k8sClient}
+		r.Client = counting
+		_, err = r.ensureGateway(ctx, inv)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(counting.updates).To(BeZero())
+		after := &appsv1.Deployment{}
+		Expect(k8sClient.Get(ctx, key, after)).To(Succeed())
+		Expect(after.ResourceVersion).To(Equal(before.ResourceVersion))
+	})
 })
+
+type updateCounter struct {
+	client.Client
+	updates int
+}
+
+func (c *updateCounter) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	c.updates++
+	return c.Client.Update(ctx, obj, opts...)
+}
 
 // setDeploymentAvailable writes a status with one available replica that envtest accepts.
 func setDeploymentAvailable(dep *appsv1.Deployment, observedGeneration int64) {
