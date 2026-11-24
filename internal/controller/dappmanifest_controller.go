@@ -155,8 +155,9 @@ func (r *DappManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request
 }
 
 // reconcileDelete removes the dApp's inventory entry, which tells the Gateway to withdraw it,
-// and keeps the finalizer until the Gateway reports it un-advertised. Then it deletes the token
-// Secrets and, for the last dApp on the node, the inventory (GC removes the Gateway). GC removes
+// and keeps the finalizer until the Gateway confirms by removing the dApp's status entry. On a
+// node whose spec is now empty it also waits until no status entry is left. Then it deletes the
+// token Secrets and, for the last dApp on the node, the inventory (GC removes the Gateway). GC removes
 // the HelmRepository and HelmRelease through their owner references once the finalizer is gone.
 func (r *DappManifestReconciler) reconcileDelete(ctx context.Context, dm *cachev1alpha1.DappManifest) (ctrl.Result, error) {
 	if !controllerutil.ContainsFinalizer(dm, dappFinalizer) {
@@ -190,9 +191,13 @@ func (r *DappManifestReconciler) reconcileDelete(ctx context.Context, dm *cachev
 		}
 		// On an emptying node, every deleting dApp holds until the Gateway has no status entry left,
 		// so the last one deletes the inventory and no orphan ID is left behind with the Gateway.
-		if awaitingWithdraw(inv, dm.Status.DappID) || (len(inv.Spec.Entries) == 0 && len(inv.Status.Entries) > 0) {
-			// The inventory watch triggers the next reconcile.
+		// The inventory watch triggers the next reconcile in both waits.
+		if awaitingWithdraw(inv, dm.Status.DappID) {
 			r.setReadyCondition(dm, metav1.ConditionFalse, "WaitingForWithdraw", "Waiting for the Gateway to withdraw the dApp")
+			return requeueOnConflict(r.Status().Update(ctx, dm))
+		}
+		if len(inv.Spec.Entries) == 0 && len(inv.Status.Entries) > 0 {
+			r.setReadyCondition(dm, metav1.ConditionFalse, "WaitingForWithdraw", "Waiting for the Gateway to withdraw the remaining dApps on the node")
 			return requeueOnConflict(r.Status().Update(ctx, dm))
 		}
 		r.setCondition(dm, "Advertised", metav1.ConditionFalse, "Withdrawn", "The Gateway withdrew the dApp and removed its status entry")

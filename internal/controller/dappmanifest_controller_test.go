@@ -422,22 +422,44 @@ var _ = Describe("DappManifest Controller", func() {
 			Expect(entries[0].Dapp.Name).To(Equal(second.Name))
 		})
 
-		It("waits for the status entry to go when deleted while the add is in flight", func() {
+		// waitsWhileOtherDappRemains deletes the first dApp while a second one stays on node-a, so the
+		// spec never empties and only the deleting dApp's own status entry can hold its finalizer.
+		waitsWhileOtherDappRemains := func(own cachev1alpha1.DappInventoryEntryStatus) {
+			second := types.NamespacedName{Name: resourceName + "-2", Namespace: "default"}
+			Expect(k8sClient.Create(ctx, newDappManifest(second))).To(Succeed())
+			DeferCleanup(cleanupDappManifest, second)
 			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
+			Expect(reconcileOnce(second)).To(Succeed())
+			others := []cachev1alpha1.DappInventoryEntryStatus{{DappID: 2, Generation: 1, Registered: true, Advertised: true}}
 			inv := getInventory()
-			inv.Status.Entries = []cachev1alpha1.DappInventoryEntryStatus{
-				{DappID: 1, Generation: getEntry(namespacedName).Generation, Registered: true, Advertised: false}}
+			own.DappID, own.Generation = 1, getEntry(namespacedName).Generation
+			inv.Status.Entries = append([]cachev1alpha1.DappInventoryEntryStatus{own}, others...)
 			Expect(k8sClient.Status().Update(ctx, inv)).To(Succeed())
 
 			Expect(k8sClient.Delete(ctx, getDM(namespacedName))).To(Succeed())
 			Expect(reconcileOnce(namespacedName)).To(Succeed())
 			Expect(reconcileOnce(namespacedName)).To(Succeed())
 			Expect(readyReason(namespacedName)).To(Equal("WaitingForWithdraw"))
+			entries := getInventory().Spec.Entries
+			Expect(entries).To(HaveLen(1))
+			Expect(entries[0].Dapp.Name).To(Equal(second.Name))
 
-			withdrawAll()
+			By("the Gateway removes the deleting dApp's status entry")
+			inv = getInventory()
+			inv.Status.Entries = others
+			Expect(k8sClient.Status().Update(ctx, inv)).To(Succeed())
 			Expect(reconcileOnce(namespacedName)).To(Succeed())
 			err := k8sClient.Get(ctx, namespacedName, &cachev1alpha1.DappManifest{})
 			Expect(errors.IsNotFound(err)).To(BeTrue())
+			Expect(getInventory().Spec.Entries).To(HaveLen(1))
+		}
+
+		It("waits for its own status entry to go while another dApp stays on the node", func() {
+			waitsWhileOtherDappRemains(cachev1alpha1.DappInventoryEntryStatus{Registered: true, Advertised: true})
+		})
+
+		It("waits for its own status entry to go when deleted while the add is in flight", func() {
+			waitsWhileOtherDappRemains(cachev1alpha1.DappInventoryEntryStatus{Registered: true, Advertised: false})
 		})
 
 		It("holds every deleting dApp on an emptying node until the Gateway status is empty", func() {
@@ -459,7 +481,11 @@ var _ = Describe("DappManifest Controller", func() {
 			Expect(reconcileOnce(namespacedName)).To(Succeed())
 			Expect(reconcileOnce(second)).To(Succeed())
 			Expect(readyReason(namespacedName)).To(Equal("WaitingForWithdraw"))
+			Expect(findCondition(getDM(namespacedName).Status.Conditions, "Ready").Message).To(
+				Equal("Waiting for the Gateway to withdraw the remaining dApps on the node"))
 			Expect(readyReason(second)).To(Equal("WaitingForWithdraw"))
+			Expect(findCondition(getDM(second).Status.Conditions, "Ready").Message).To(
+				Equal("Waiting for the Gateway to withdraw the dApp"))
 			getInventory()
 
 			By("withdrawing the second dApp")
