@@ -63,6 +63,7 @@ spec:
                     type: string
                 type: object
               namespace:
+                minLength: 1
                 type: string
                 x-kubernetes-validations:
                 - message: namespace is immutable
@@ -112,6 +113,7 @@ spec:
                   type: object
                 type: array
             required:
+            - namespace
             - nodeName
             type: object
           status:

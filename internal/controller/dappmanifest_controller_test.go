@@ -193,6 +193,24 @@ var _ = Describe("DappManifest Controller", func() {
 			Expect(err).To(MatchError(ContainSubstring("namespace is immutable")))
 		})
 
+		It("rejects a DappManifest without namespace", func() {
+			dm := newDappManifest(types.NamespacedName{Name: resourceName + "-nons", Namespace: "default"})
+			dm.Spec.Namespace = ""
+			Expect(k8sClient.Create(ctx, dm)).To(MatchError(ContainSubstring("spec.namespace")))
+		})
+
+		It("starts a reused dApp ID above the stale Gateway status generation", func() {
+			inv := &cachev1alpha1.DappInventory{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}
+			Expect(k8sClient.Create(ctx, inv)).To(Succeed())
+			setGatewayStatus(1)
+
+			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
+			entry := getEntry(namespacedName)
+			Expect(entry.DappID).To(Equal(int32(1)))
+			Expect(entry.Generation).To(Equal(int64(2)))
+			Expect(condStatus(getDM(namespacedName), "Registered")).To(Equal(metav1.ConditionFalse))
+		})
+
 		It("assigns a dApp ID, stores only the token hash, and creates the Secret", func() {
 			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
 

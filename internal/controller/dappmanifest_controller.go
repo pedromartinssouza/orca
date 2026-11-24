@@ -100,11 +100,6 @@ func (r *DappManifestReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	if dm.Spec.Namespace == "" {
-		r.setReadyCondition(dm, metav1.ConditionFalse, "InvalidSpec", "spec.namespace must be set")
-		return writeStatus()
-	}
-
 	if controllerutil.AddFinalizer(dm, dappFinalizer) {
 		if err := r.Update(ctx, dm); err != nil {
 			if apierrors.IsConflict(err) {

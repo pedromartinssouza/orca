@@ -30,8 +30,9 @@ type DappManifestSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	DappName string `json:"dappName,omitempty"`
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="namespace is immutable"
-	Namespace string   `json:"namespace,omitempty"`
+	Namespace string   `json:"namespace"`
 	Helm      HelmSpec `json:"helm,omitempty"`
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="nodeName is immutable"

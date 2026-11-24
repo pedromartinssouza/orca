@@ -150,6 +150,12 @@ func (r *DappManifestReconciler) reconcileInventory(ctx context.Context, dm *cac
 		entry.Generation = inv.Spec.Entries[i].Generation + 1
 		inv.Spec.Entries[i] = entry
 	} else {
+		// A reused ID must not match a stale Gateway status left by its previous holder.
+		for _, st := range inv.Status.Entries {
+			if st.DappID == id && st.Generation >= entry.Generation {
+				entry.Generation = st.Generation + 1
+			}
+		}
 		inv.Spec.Entries = append(inv.Spec.Entries, entry)
 	}
 	if err := r.Update(ctx, inv); err != nil {
