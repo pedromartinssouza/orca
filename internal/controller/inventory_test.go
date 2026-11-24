@@ -86,3 +86,10 @@ func TestTokenSecretNameTruncatesToValidName(t *testing.T) {
 		t.Fatalf("%q: %v", got, errs)
 	}
 }
+
+func TestNodeNameIndexer(t *testing.T) {
+	dm := &cachev1alpha1.DappManifest{Spec: cachev1alpha1.DappManifestSpec{NodeName: "node-a"}}
+	if got := nodeNameIndexer(dm); len(got) != 1 || got[0] != "node-a" {
+		t.Fatalf("got %v", got)
+	}
+}

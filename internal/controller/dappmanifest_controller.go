@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	helmv2 "github.com/fluxcd/helm-controller/api/v2"
@@ -34,9 +35,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	sigsyaml "sigs.k8s.io/yaml"
 
 	cachev1alpha1 "github.com/pedromartinssouza/orca/api/v1alpha1"
@@ -402,12 +408,53 @@ func helmRepositoryName(dappManifest *cachev1alpha1.DappManifest) string {
 	return dappManifest.Name + "-helmrepo"
 }
 
+const nodeNameIndex = "spec.nodeName"
+
+func nodeNameIndexer(obj client.Object) []string {
+	return []string{obj.(*cachev1alpha1.DappManifest).Spec.NodeName}
+}
+
+// dappsOnNode lists every DappManifest on the node, including deleting ones with a pending finalizer.
+func (r *DappManifestReconciler) dappsOnNode(ctx context.Context, node string) []reconcile.Request {
+	var dms cachev1alpha1.DappManifestList
+	if err := r.List(ctx, &dms, client.MatchingFields{nodeNameIndex: node}); err != nil {
+		logf.FromContext(ctx).Error(err, "listing dappmanifests on node", "node", node)
+		return nil
+	}
+	reqs := make([]reconcile.Request, 0, len(dms.Items))
+	for _, dm := range dms.Items {
+		reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&dm)})
+	}
+	return reqs
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *DappManifestReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &cachev1alpha1.DappManifest{}, nodeNameIndex, nodeNameIndexer); err != nil {
+		return err
+	}
+	gatewayLabel, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
+		MatchLabels: map[string]string{"app.kubernetes.io/name": "orca-gateway"},
+	})
+	if err != nil {
+		return err
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&cachev1alpha1.DappManifest{}).
 		Owns(&sourcev1.HelmRepository{}).
 		Owns(&helmv2.HelmRelease{}).
+		Watches(&cachev1alpha1.DappInventory{}, handler.EnqueueRequestsFromMapFunc(
+			func(ctx context.Context, o client.Object) []reconcile.Request {
+				return r.dappsOnNode(ctx, o.GetName())
+			})).
+		Watches(&appsv1.Deployment{}, handler.EnqueueRequestsFromMapFunc(
+			func(ctx context.Context, o client.Object) []reconcile.Request {
+				if owner := metav1.GetControllerOf(o); owner != nil && owner.Kind == "DappInventory" {
+					return r.dappsOnNode(ctx, owner.Name)
+				}
+				return nil
+			}), builder.WithPredicates(gatewayLabel)).
+		WithOptions(controller.Options{MaxConcurrentReconciles: 4}).
 		Named("dappmanifest").
 		Complete(r)
 }
