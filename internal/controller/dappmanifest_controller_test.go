@@ -168,6 +168,23 @@ var _ = Describe("DappManifest Controller", func() {
 			Expect(k8sClient.Status().Update(ctx, inv)).To(Succeed())
 		}
 
+		readyReason := func(key types.NamespacedName) string {
+			c := findCondition(getDM(key).Status.Conditions, "Ready")
+			Expect(c).NotTo(BeNil())
+			return c.Reason
+		}
+
+		// setAdvertised plays the Gateway: one status entry per dApp ID, Registered and Advertised as given.
+		setAdvertised := func(adv map[int32]bool) {
+			inv := getInventory()
+			inv.Status.Entries = nil
+			for id, a := range adv {
+				inv.Status.Entries = append(inv.Status.Entries,
+					cachev1alpha1.DappInventoryEntryStatus{DappID: id, Generation: 1, Registered: true, Advertised: a})
+			}
+			Expect(k8sClient.Status().Update(ctx, inv)).To(Succeed())
+		}
+
 		BeforeEach(func() {
 			for _, name := range []string{"orca-system", "other"} {
 				ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}
@@ -379,9 +396,12 @@ var _ = Describe("DappManifest Controller", func() {
 			Expect(k8sClient.Delete(ctx, getDM(namespacedName))).To(Succeed())
 			Expect(reconcileOnce(namespacedName)).To(Succeed())
 			Expect(getInventory().Spec.Entries).To(BeEmpty())
-			ready := findCondition(getDM(namespacedName).Status.Conditions, "Ready")
-			Expect(ready).NotTo(BeNil())
-			Expect(ready.Reason).To(Equal("Deleting"))
+			Expect(readyReason(namespacedName)).To(Equal("WaitingForWithdraw"))
+			getSecret(secretName)
+
+			By("waiting on the persisted dApp ID once the entry is gone")
+			Expect(reconcileOnce(namespacedName)).To(Succeed())
+			Expect(readyReason(namespacedName)).To(Equal("WaitingForWithdraw"))
 			getSecret(secretName)
 
 			withdrawAll()
@@ -414,6 +434,55 @@ var _ = Describe("DappManifest Controller", func() {
 			entries := getInventory().Spec.Entries
 			Expect(entries).To(HaveLen(1))
 			Expect(entries[0].Dapp.Name).To(Equal(second.Name))
+		})
+
+		It("keeps the inventory while another deleting dApp is still advertised", func() {
+			second := types.NamespacedName{Name: resourceName + "-2", Namespace: "default"}
+			Expect(k8sClient.Create(ctx, newDappManifest(second))).To(Succeed())
+			DeferCleanup(cleanupDappManifest, second)
+			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
+			Expect(reconcileOnce(second)).To(Succeed())
+			setAdvertised(map[int32]bool{1: true, 2: true})
+
+			Expect(k8sClient.Delete(ctx, getDM(namespacedName))).To(Succeed())
+			Expect(k8sClient.Delete(ctx, getDM(second))).To(Succeed())
+			Expect(reconcileOnce(namespacedName)).To(Succeed())
+			Expect(reconcileOnce(second)).To(Succeed())
+			Expect(getInventory().Spec.Entries).To(BeEmpty())
+
+			setAdvertised(map[int32]bool{1: false, 2: true})
+			Expect(reconcileOnce(namespacedName)).To(Succeed())
+			Expect(reconcileOnce(second)).To(Succeed())
+			err := k8sClient.Get(ctx, namespacedName, &cachev1alpha1.DappManifest{})
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+			getInventory()
+			Expect(readyReason(second)).To(Equal("WaitingForWithdraw"))
+
+			setAdvertised(map[int32]bool{1: false, 2: false})
+			Expect(reconcileOnce(second)).To(Succeed())
+			err = k8sClient.Get(ctx, second, &cachev1alpha1.DappManifest{})
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "node-a"}, &cachev1alpha1.DappInventory{})
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("stops waiting when another dApp now holds the deleting dApp's ID", func() {
+			Expect(reconcileWithGateway(namespacedName)).To(Succeed())
+			setGatewayStatus(getEntry(namespacedName).Generation)
+			Expect(k8sClient.Delete(ctx, getDM(namespacedName))).To(Succeed())
+			Expect(reconcileOnce(namespacedName)).To(Succeed())
+			Expect(readyReason(namespacedName)).To(Equal("WaitingForWithdraw"))
+
+			By("the Gateway withdrew ID 1, another dApp took it and is advertised under it")
+			inv := getInventory()
+			inv.Spec.Entries = append(inv.Spec.Entries, cachev1alpha1.DappInventoryEntry{
+				Dapp: cachev1alpha1.DappRef{Namespace: "other", Name: "newcomer"}, DappID: 1, TokenHash: "x", Generation: 2})
+			Expect(k8sClient.Update(ctx, inv)).To(Succeed())
+
+			Expect(reconcileOnce(namespacedName)).To(Succeed())
+			err := k8sClient.Get(ctx, namespacedName, &cachev1alpha1.DappManifest{})
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+			Expect(getInventory().Spec.Entries).To(HaveLen(1))
 		})
 
 		It("fails with InventoryUpdateFailed when the node is full", func() {

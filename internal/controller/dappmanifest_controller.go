@@ -176,7 +176,7 @@ func (r *DappManifestReconciler) reconcileDelete(ctx context.Context, dm *cachev
 	}
 	invFound := getErr == nil
 	if invFound {
-		r.setReadyCondition(dm, metav1.ConditionFalse, "Deleting", "Waiting for the Gateway to withdraw the dApp")
+		r.setReadyCondition(dm, metav1.ConditionFalse, "Deleting", "The dApp is being deleted")
 		if i := findEntry(inv.Spec.Entries, cachev1alpha1.DappRef{Namespace: dm.Namespace, Name: dm.Name}); i >= 0 {
 			// Persist the ID first, so the wait below still finds it once the entry is gone.
 			dm.Status.DappID = inv.Spec.Entries[i].DappID
@@ -188,9 +188,10 @@ func (r *DappManifestReconciler) reconcileDelete(ctx context.Context, dm *cachev
 				return requeueOnConflict(err)
 			}
 		}
-		if es := findEntryStatus(inv.Status.Entries, dm.Status.DappID); dm.Status.DappID != 0 && es != nil && es.Advertised {
-			// Ready=Deleting was written with the ID above. The inventory watch triggers the next reconcile.
-			return ctrl.Result{}, nil
+		if awaitingWithdraw(inv, dm.Status.DappID) {
+			// The inventory watch triggers the next reconcile.
+			r.setReadyCondition(dm, metav1.ConditionFalse, "WaitingForWithdraw", "Waiting for the Gateway to withdraw the dApp")
+			return requeueOnConflict(r.Status().Update(ctx, dm))
 		}
 		r.setCondition(dm, "Advertised", metav1.ConditionFalse, "Withdrawn", "The Gateway withdrew the dApp from the RIC")
 		if err := r.Status().Update(ctx, dm); err != nil {
@@ -201,7 +202,8 @@ func (r *DappManifestReconciler) reconcileDelete(ctx context.Context, dm *cachev
 	if err := r.pruneTokenSecrets(ctx, dm, ""); err != nil {
 		return ctrl.Result{}, err
 	}
-	if invFound && len(inv.Spec.Entries) == 0 {
+	if invFound && len(inv.Spec.Entries) == 0 && !anyAdvertised(inv) {
+		// The Gateway must outlive every advertised dApp, including other deleting ones.
 		// The precondition keeps an entry added since our read from being deleted with the inventory.
 		err := r.Delete(ctx, inv, client.Preconditions{ResourceVersion: &inv.ResourceVersion})
 		if client.IgnoreNotFound(err) != nil {
@@ -211,6 +213,30 @@ func (r *DappManifestReconciler) reconcileDelete(ctx context.Context, dm *cachev
 
 	controllerutil.RemoveFinalizer(dm, dappFinalizer)
 	return requeueOnConflict(client.IgnoreNotFound(r.Update(ctx, dm)))
+}
+
+// awaitingWithdraw reports whether the Gateway still advertises id for the deleting dApp. Once
+// another spec entry holds id, the ID was withdrawn and reallocated, so it is no longer ours.
+func awaitingWithdraw(inv *cachev1alpha1.DappInventory, id int32) bool {
+	if id == 0 {
+		return false
+	}
+	for _, e := range inv.Spec.Entries {
+		if e.DappID == id {
+			return false
+		}
+	}
+	es := findEntryStatus(inv.Status.Entries, id)
+	return es != nil && es.Advertised
+}
+
+func anyAdvertised(inv *cachev1alpha1.DappInventory) bool {
+	for _, st := range inv.Status.Entries {
+		if st.Advertised {
+			return true
+		}
+	}
+	return false
 }
 
 // syncLifecycleConditions reports Registered and Advertised from the Gateway's status for the
