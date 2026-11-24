@@ -22,7 +22,7 @@ It terminates E3 for the dApps on its node and advertises them to the RIC via RI
 
 **DappInventory (new CR, one per node, name = node name).**
 - `spec`, written by ORCA: the dApps on the node. Each entry has the DappManifest reference, the reserved dApp ID, the credential reference, and an entry generation.
-- `status`, written by the Gateway: per dApp, whether it is Registered and Advertised, plus the un-advertise confirmation on deletion.
+- `status`, written by the Gateway: per dApp, whether it is Registered and Advertised. The Gateway confirms a withdrawal by deleting the dApp's status entry. When a dApp leaves the spec, the Gateway un-advertises it (or cancels an add still in flight), closes its E3 session, and then removes its status entry.
 
 RBAC is split: ORCA writes `spec`, and the Gateway may only get and watch the CR and patch `dappinventories/status`.
 
@@ -71,7 +71,7 @@ How rotation works:
 - **Triggers.** ORCA rotates the token when one of these holds: the entry is missing, the current token Secret is missing, the DappManifest's generation changed, or the Secret's token does not match the stored hash. ORCA reads Secrets directly from the API server, not from a cache, so a stale cache cannot trigger a rotation by mistake.
 - **A new Secret per rotation.** Each rotation creates a new Secret named `<namespace>-<name>-e3-<first 10 hex of the hash>`. The Helm value `orca.e3TokenSecret` therefore changes, and Flux rolls the dApp pod. The old pod keeps its old token, which no longer matches, so the Gateway rejects it. The old Secrets of the same dApp are deleted only after the HelmRelease points to the new one.
 - **The entry generation counts rotations.** `DappInventoryEntry.generation` starts at 1 and goes up by 1 on every rotation. A new entry that reuses a freed dApp ID starts one above any Gateway status generation left for that ID, so a stale status cannot be mistaken for the new dApp.
-- **A dApp ID is not reused while it is still in use on the RIC side.** An ID whose Gateway status entry is still Registered or Advertised is not free for allocation, even after its spec entry is removed. The RIC never sees one ID for two dApps at once. `Registered` and `Advertised` count only when the Gateway's status generation matches, so they reset on every rotation, not only on spec changes.
+- **A dApp ID is not reused while it is still in use on the RIC side.** An ID that still has a Gateway status entry is not free for allocation, even after its spec entry is removed. The RIC never sees one ID for two dApps at once. `Registered` and `Advertised` count only when the Gateway's status generation matches, so they reset on every rotation, not only on spec changes.
 - **`spec.namespace` is immutable**, like `nodeName`, so no Secret can be orphaned in an earlier namespace. The SMO's Deployment ID (nGRG deploy use case, steps 9 and 10) is a separate identifier.
 
 ## Gateway deployment
@@ -120,18 +120,18 @@ sequenceDiagram
 ### Delete (finalizer on DappManifest)
 
 1. Remove the dApp's entry from DappInventory(N).spec.
-2. Wait until the Gateway confirms the un-advertise (RIC Service Update acked) in the status.
+2. Wait until the Gateway confirms the withdrawal by removing the dApp's status entry. `Advertised=false` alone is not enough, because an add may still be in flight.
 3. Delete the dApp (HelmRelease).
-4. If it was the last dApp on N, delete DappInventory(N). Garbage collection then removes the Gateway.
+4. If it was the last dApp on N, wait until the inventory status is empty, then delete DappInventory(N). Garbage collection then removes the Gateway.
 5. Remove the finalizer.
 
 Two more rules keep step 4 safe:
-- **When the inventory is deleted.** Step 4 applies only when the spec is empty and no Gateway status entry is still Advertised. Otherwise another dApp on the node is still waiting for its own un-advertise.
+- **When the inventory is deleted.** Step 4 applies only when both the spec and the status are empty. While the spec is empty but the status is not, every deleting dApp on the node keeps waiting. The last one to see an empty status deletes the inventory. This way the Gateway is never removed while a withdrawal is still in progress, and no Gateway is left behind on a node without dApps.
 - **A reused dApp ID.** While a deleting dApp waits, its ID may already belong to another dApp's spec entry. In that case its own withdrawal already happened, so it does not wait.
 
 Known limitations of the delete flow:
-- **Foreground cascade or namespace deletion.** Both remove the HelmRelease, and with it the dApp pod, before the Gateway confirms the un-advertise. This happens with `kubectl delete --cascade=foreground` and when the DappManifest's namespace is deleted. Ordinary (background) deletion of a DappManifest is safe. Fixing this would mean dropping the HelmRelease ownerReference and deleting it explicitly after the wait, or holding a finalizer on the HelmRelease.
-- **A Gateway that dies while a dApp is advertised.** Deletion blocks until the Gateway's status is cleared. The DappManifest shows `Ready=False` with reason `WaitingForWithdraw` meanwhile.
+- **Foreground cascade or namespace deletion.** Both remove the HelmRelease, and with it the dApp pod, before the Gateway confirms the un-advertise. This happens with `kubectl delete --cascade=foreground`, when the DappManifest's namespace is deleted, and when the dApp's target namespace (`spec.namespace`) is deleted. Ordinary (background) deletion of a DappManifest is safe. Dropping the HelmRelease ownerReference and deleting it explicitly after the wait would fix the foreground case only. The namespace cases would need an admission check that blocks namespace deletion while dApps in it are still advertised. A finalizer on the HelmRelease does not help, because Flux uninstalls the release as soon as deletion starts.
+- **A Gateway that dies while a dApp is advertised.** Deletion blocks until the Gateway's status entry is removed. The DappManifest shows `Ready=False` with reason `WaitingForWithdraw` meanwhile.
 
 ### Update
 
@@ -147,7 +147,7 @@ Rotate the token, which bumps the entry generation in DappInventory, before upda
 | `Advertised` | DappInventory status | The RIC acked the RIC Service Update |
 | `Ready` | Aggregate | All four are True |
 
-- On deletion, `Ready=False` with reason `Deleting`. `Advertised=False` with reason `Withdrawn` is the signal that unblocks dApp deletion.
+- On deletion, `Ready=False` with reason `Deleting`, or `WaitingForWithdraw` while ORCA waits for the Gateway. `Advertised=False` with reason `Withdrawn` is set once the Gateway has removed the dApp's status entry, which unblocks dApp deletion.
 - If the inventory write fails, `Ready=False` with reason `InventoryUpdateFailed`. This step has no condition of its own, because it is ORCA's synchronous write.
 - New status fields: `dappId` and `nodeName`, next to the existing `helmRepositoryRef` and `helmReleaseRef`.
 
