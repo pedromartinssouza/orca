@@ -24,11 +24,12 @@ It terminates E3 for the dApps on its node and advertises them to the RIC via RI
 - `spec`, written by ORCA: the dApps on the node. Each entry has the DappManifest reference, the reserved dApp ID, the credential reference, and an entry generation.
 - `status`, written by the Gateway: per dApp, whether it is Registered and Advertised. The Gateway confirms a withdrawal by deleting the dApp's status entry.
 
-Gateway contract (the ORCA side relies on all four rules):
+Gateway contract (the ORCA side relies on all five rules):
 1. **Entry before anything in flight.** The Gateway writes a status entry (`registered: false`) before it accepts an E3 Setup or starts any RIC Service Update for that ID. Then "no status entry" always means "nothing in flight".
 2. **Withdraw, then remove.** When a dApp leaves the spec, the Gateway un-advertises it (or cancels an add still in flight), closes its E3 session, and only then removes its status entry.
 3. **Level-based.** Any status entry whose ID has no spec entry is withdrawn and removed, including entries found after a Gateway restart. An orphan entry would otherwise block every deletion on the node.
 4. **Conditional writes.** Every status write is conditional on the `resourceVersion` the Gateway read. A write based on a spec that no longer holds the ID fails, so a late write cannot recreate a removed entry.
+5. **Reset on start.** When the Gateway starts, and before its readiness probe passes, it sets `registered` and `advertised` to false on every status entry (a conditional write). A restarted Gateway has no E3 sessions and has advertised nothing, so a status left by the previous pod must not count after the restart.
 
 RBAC is split: ORCA writes `spec`, and the Gateway may only get and watch the CR and patch `dappinventories/status`.
 
@@ -153,6 +154,7 @@ Rotate the token, which bumps the entry generation in DappInventory, before upda
 | `Advertised` | DappInventory status | The RIC acked the RIC Service Update |
 | `Ready` | Aggregate | All four are True |
 
+- While the Gateway is not ready, `Registered=False` and `Advertised=False` with reason `GatewayNotReady`.
 - On deletion, `Ready=False` with reason `Deleting`, or `WaitingForWithdraw` while ORCA waits for the Gateway. `Advertised=False` with reason `Withdrawn` is set once deletion stops waiting, just before the finalizer is removed.
 - If the inventory write fails, `Ready=False` with reason `InventoryUpdateFailed`. This step has no condition of its own, because it is ORCA's synchronous write.
 - New status fields: `dappId` and `nodeName`, next to the existing `helmRepositoryRef` and `helmReleaseRef`.
