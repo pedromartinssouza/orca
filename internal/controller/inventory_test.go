@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -47,7 +48,7 @@ func TestAllocateDappIDLowestFree(t *testing.T) {
 func TestAllocateDappIDFull(t *testing.T) {
 	var es []cachev1alpha1.DappInventoryEntry
 	for i := minDappID; i <= maxDappID; i++ {
-		es = append(es, cachev1alpha1.DappInventoryEntry{Dapp: ref(string(rune('a'+i%26)) + string(rune('A'+i/26))), DappID: i})
+		es = append(es, cachev1alpha1.DappInventoryEntry{Dapp: ref(fmt.Sprint("d", i)), DappID: i})
 	}
 	if _, err := allocateDappID(es, nil, ref("new")); err == nil {
 		t.Fatal("expected error")

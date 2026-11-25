@@ -199,8 +199,10 @@ func main() {
 		LeaderElectionID:       "d1611b6d.orca.com",
 		// Cache only ORCA's token Secrets and Gateway Deployments, not every Secret and Deployment in the cluster.
 		Cache: cache.Options{ByObject: map[client.Object]cache.ByObject{
-			&corev1.Secret{}:     {Label: labels.SelectorFromSet(labels.Set{controller.ManagedByLabel: "orca"})},
-			&appsv1.Deployment{}: {Label: labels.SelectorFromSet(labels.Set{controller.GatewayNameLabel: controller.GatewayNameValue})},
+			&corev1.Secret{}: {Label: labels.SelectorFromSet(labels.Set{controller.ManagedByLabel: "orca"})},
+			&appsv1.Deployment{}: {Label: labels.SelectorFromSet(labels.Set{
+				controller.GatewayNameLabel: controller.GatewayNameValue,
+			})},
 		}},
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
