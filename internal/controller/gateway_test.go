@@ -1,0 +1,138 @@
+package controller
+
+import (
+	"context"
+	"strings"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	cachev1alpha1 "github.com/pedromartinssouza/orca/api/v1alpha1"
+)
+
+var _ = Describe("ensureGateway", func() {
+	var r *DappManifestReconciler
+
+	BeforeEach(func() {
+		ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "orca-system"}}
+		if err := k8sClient.Create(ctx, ns); err != nil && !apierrors.IsAlreadyExists(err) {
+			Fail(err.Error())
+		}
+		r = &DappManifestReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(),
+			GatewayImage: "example.com/gw:test", GatewayNamespace: "orca-system"}
+	})
+
+	// newInventory creates the inventory and removes it and its Gateway afterwards (envtest has no GC).
+	newInventory := func(name string) *cachev1alpha1.DappInventory {
+		inv := &cachev1alpha1.DappInventory{ObjectMeta: metav1.ObjectMeta{Name: name}}
+		Expect(k8sClient.Create(ctx, inv)).To(Succeed())
+		DeferCleanup(func() {
+			dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: gatewayName(name), Namespace: "orca-system"}}
+			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, dep))).To(Succeed())
+			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, inv))).To(Succeed())
+		})
+		return inv
+	}
+
+	It("creates a Gateway Deployment owned by the inventory and reports readiness", func() {
+		inv := newInventory("node-a")
+
+		ready, err := r.ensureGateway(ctx, inv)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ready).To(BeFalse())
+
+		dep := &appsv1.Deployment{}
+		key := types.NamespacedName{Name: "orca-gateway-node-a", Namespace: "orca-system"}
+		Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
+		Expect(*dep.Spec.Replicas).To(Equal(int32(1)))
+		Expect(dep.Spec.Strategy.Type).To(Equal(appsv1.RecreateDeploymentStrategyType))
+		pod := dep.Spec.Template.Spec
+		Expect(pod.NodeName).To(Equal("node-a"))
+		Expect(pod.ServiceAccountName).To(Equal("orca-gateway"))
+		Expect(pod.Containers[0].Image).To(Equal("example.com/gw:test"))
+		Expect(pod.Containers[0].Env[0].Name).To(Equal("NODE_NAME"))
+		Expect(pod.Containers[0].Env[0].ValueFrom.FieldRef.FieldPath).To(Equal("spec.nodeName"))
+		Expect(dep.OwnerReferences).To(HaveLen(1))
+		Expect(dep.OwnerReferences[0].Name).To(Equal("node-a"))
+		Expect(*dep.OwnerReferences[0].Controller).To(BeTrue())
+
+		// Available replicas but the controller has not observed the latest generation: not ready.
+		setDeploymentAvailable(dep, dep.Generation-1)
+		ready, err = r.ensureGateway(ctx, inv)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ready).To(BeFalse())
+
+		Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
+		setDeploymentAvailable(dep, dep.Generation)
+		ready, err = r.ensureGateway(ctx, inv)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ready).To(BeTrue())
+	})
+
+	It("accepts a node name longer than the 63 character label limit", func() {
+		inv := newInventory(strings.Repeat("n", 70))
+		_, err := r.ensureGateway(ctx, inv)
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("adopts the Gateway Deployment of a recreated inventory", func() {
+		old := newInventory("node-x")
+		_, err := r.ensureGateway(ctx, old)
+		Expect(err).NotTo(HaveOccurred())
+
+		// envtest has no GC, so the Deployment outlives the deleted inventory.
+		Expect(k8sClient.Delete(ctx, old)).To(Succeed())
+		inv := newInventory("node-x")
+		Expect(inv.UID).NotTo(Equal(old.UID))
+
+		_, err = r.ensureGateway(ctx, inv)
+		Expect(err).NotTo(HaveOccurred())
+		dep := &appsv1.Deployment{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: gatewayName("node-x"), Namespace: "orca-system"}, dep)).To(Succeed())
+		Expect(metav1.GetControllerOf(dep).UID).To(Equal(inv.UID))
+	})
+
+	It("does not update an unchanged Gateway Deployment", func() {
+		inv := newInventory("node-y")
+		_, err := r.ensureGateway(ctx, inv)
+		Expect(err).NotTo(HaveOccurred())
+		key := types.NamespacedName{Name: gatewayName("node-y"), Namespace: "orca-system"}
+		before := &appsv1.Deployment{}
+		Expect(k8sClient.Get(ctx, key, before)).To(Succeed())
+
+		// The API server drops a no-op Update, so also count the Updates sent.
+		counting := &updateCounter{Client: k8sClient}
+		r.Client = counting
+		_, err = r.ensureGateway(ctx, inv)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(counting.updates).To(BeZero())
+		after := &appsv1.Deployment{}
+		Expect(k8sClient.Get(ctx, key, after)).To(Succeed())
+		Expect(after.ResourceVersion).To(Equal(before.ResourceVersion))
+	})
+})
+
+type updateCounter struct {
+	client.Client
+	updates int
+}
+
+func (c *updateCounter) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	c.updates++
+	return c.Client.Update(ctx, obj, opts...)
+}
+
+// setDeploymentAvailable writes a status with one available replica that envtest accepts.
+func setDeploymentAvailable(dep *appsv1.Deployment, observedGeneration int64) {
+	dep.Status.Replicas, dep.Status.UpdatedReplicas = 1, 1
+	dep.Status.ReadyReplicas, dep.Status.AvailableReplicas = 1, 1
+	dep.Status.ObservedGeneration = observedGeneration
+	Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
+}

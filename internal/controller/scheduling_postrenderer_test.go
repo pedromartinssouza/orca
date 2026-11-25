@@ -19,6 +19,7 @@ package controller
 import (
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	sigsyaml "sigs.k8s.io/yaml"
 
 	cachev1alpha1 "github.com/pedromartinssouza/orca/api/v1alpha1"
@@ -76,11 +77,11 @@ func TestBuildSchedulingPostRenderer_NodeName(t *testing.T) {
 	}
 }
 
-func TestBuildSchedulingPostRenderer_NodeNameCombinesWithSelectorAndTolerations(t *testing.T) {
+func TestBuildSchedulingPostRenderer_NodeNameWithTolerations(t *testing.T) {
 	dappManifest := &cachev1alpha1.DappManifest{
 		Spec: cachev1alpha1.DappManifestSpec{
-			NodeName:     "orca-testbed-worker2",
-			NodeSelector: map[string]string{"type": "o-du"},
+			NodeName:    "orca-testbed-worker2",
+			Tolerations: []corev1.Toleration{{Key: "dedicated", Operator: corev1.TolerationOpEqual, Value: "o-du", Effect: corev1.TaintEffectNoSchedule}},
 		},
 	}
 
@@ -96,20 +97,7 @@ func TestBuildSchedulingPostRenderer_NodeNameCombinesWithSelectorAndTolerations(
 	if got := podSpec["nodeName"]; got != "orca-testbed-worker2" {
 		t.Errorf("nodeName = %v, want %q", got, "orca-testbed-worker2")
 	}
-	nodeSelector, ok := podSpec["nodeSelector"].(map[string]interface{})
-	if !ok || nodeSelector["type"] != "o-du" {
-		t.Errorf("nodeSelector = %v, want map[type:o-du]", podSpec["nodeSelector"])
-	}
-}
-
-func TestBuildSchedulingPostRenderer_NoSchedulingFieldsReturnsNil(t *testing.T) {
-	dappManifest := &cachev1alpha1.DappManifest{}
-
-	renderers, err := buildSchedulingPostRenderer(dappManifest)
-	if err != nil {
-		t.Fatalf("buildSchedulingPostRenderer returned error: %v", err)
-	}
-	if renderers != nil {
-		t.Errorf("expected nil post-renderers when no scheduling fields are set, got %#v", renderers)
+	if tols, ok := podSpec["tolerations"].([]interface{}); !ok || len(tols) != 1 {
+		t.Errorf("tolerations = %v, want one entry", podSpec["tolerations"])
 	}
 }

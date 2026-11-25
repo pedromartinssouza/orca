@@ -5,8 +5,40 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - create
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - cache.orca.com
   resources:
+  - dappinventories
   - dappmanifests
   verbs:
   - create
@@ -19,9 +51,16 @@ rules:
 - apiGroups:
   - cache.orca.com
   resources:
+  - dappinventories/finalizers
   - dappmanifests/finalizers
   verbs:
   - update
+- apiGroups:
+  - cache.orca.com
+  resources:
+  - dappinventories/status
+  verbs:
+  - get
 - apiGroups:
   - cache.orca.com
   resources:

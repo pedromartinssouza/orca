@@ -20,3 +20,6 @@ resources:
 
 leaderElection:
   enabled: true
+
+gateway:
+  image: ghcr.io/pedromartinssouza/orca-gateway:latest

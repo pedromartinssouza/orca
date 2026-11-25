@@ -63,13 +63,17 @@ spec:
                     type: string
                 type: object
               namespace:
+                minLength: 1
                 type: string
+                x-kubernetes-validations:
+                - message: namespace is immutable
+                  rule: self == oldSelf
               nodeName:
+                minLength: 1
                 type: string
-              nodeSelector:
-                additionalProperties:
-                  type: string
-                type: object
+                x-kubernetes-validations:
+                - message: nodeName is immutable
+                  rule: self == oldSelf
               tolerations:
                 items:
                   description: |-
@@ -108,6 +112,9 @@ spec:
                       type: string
                   type: object
                 type: array
+            required:
+            - namespace
+            - nodeName
             type: object
           status:
             description: DappManifestStatus defines the observed state of DappManifest.
@@ -168,9 +175,18 @@ spec:
                   - type
                   type: object
                 type: array
+              dappId:
+                description: DappID is the dApp ID reserved on the node; 0 before
+                  assignment.
+                format: int32
+                maximum: 100
+                minimum: 0
+                type: integer
               helmReleaseRef:
                 type: string
               helmRepositoryRef:
+                type: string
+              nodeName:
                 type: string
             type: object
         type: object

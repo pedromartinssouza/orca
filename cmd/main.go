@@ -26,11 +26,16 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -85,6 +90,9 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	var gatewayImage, gatewayNamespace string
+	flag.StringVar(&gatewayImage, "gateway-image", "", "Image of the per-node Gateway RAN Function pod.")
+	flag.StringVar(&gatewayNamespace, "gateway-namespace", "orca-system", "Namespace of the per-node Gateway Deployments.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -189,6 +197,13 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "d1611b6d.orca.com",
+		// Cache only ORCA's token Secrets and Gateway Deployments, not every Secret and Deployment in the cluster.
+		Cache: cache.Options{ByObject: map[client.Object]cache.ByObject{
+			&corev1.Secret{}: {Label: labels.SelectorFromSet(labels.Set{controller.ManagedByLabel: "orca"})},
+			&appsv1.Deployment{}: {Label: labels.SelectorFromSet(labels.Set{
+				controller.GatewayNameLabel: controller.GatewayNameValue,
+			})},
+		}},
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -206,9 +221,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	if gatewayImage == "" {
+		setupLog.Error(nil, "--gateway-image is required")
+		os.Exit(1)
+	}
+
 	if err := (&controller.DappManifestReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:           mgr.GetClient(),
+		APIReader:        mgr.GetAPIReader(),
+		Scheme:           mgr.GetScheme(),
+		GatewayImage:     gatewayImage,
+		GatewayNamespace: gatewayNamespace,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "DappManifest")
 		os.Exit(1)

@@ -29,12 +29,15 @@ type DappManifestSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	DappName     string              `json:"dappName,omitempty"`
-	Namespace    string              `json:"namespace,omitempty"`
-	Helm         HelmSpec            `json:"helm,omitempty"`
-	NodeName     string              `json:"nodeName,omitempty"`
-	NodeSelector map[string]string   `json:"nodeSelector,omitempty"`
-	Tolerations  []corev1.Toleration `json:"tolerations,omitempty"`
+	DappName string `json:"dappName,omitempty"`
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="namespace is immutable"
+	Namespace string   `json:"namespace"`
+	Helm      HelmSpec `json:"helm,omitempty"`
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="nodeName is immutable"
+	NodeName    string              `json:"nodeName"`
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 }
 
 type HelmSpec struct {
@@ -49,6 +52,11 @@ type DappManifestStatus struct {
 	Conditions        []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 	HelmRepositoryRef string             `json:"helmRepositoryRef,omitempty"`
 	HelmReleaseRef    string             `json:"helmReleaseRef,omitempty"`
+	// DappID is the dApp ID reserved on the node; 0 before assignment.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	DappID   int32  `json:"dappId,omitempty"`
+	NodeName string `json:"nodeName,omitempty"`
 }
 
 // +kubebuilder:object:root=true

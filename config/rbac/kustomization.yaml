@@ -7,6 +7,9 @@ resources:
 - service_account.yaml
 - role.yaml
 - role_binding.yaml
+- gateway_service_account.yaml
+- gateway_role.yaml
+- gateway_role_binding.yaml
 - leader_election_role.yaml
 - leader_election_role_binding.yaml
 # The following RBAC configurations are used to protect

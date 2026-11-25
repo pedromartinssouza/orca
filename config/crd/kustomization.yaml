@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/cache.orca.com_dappmanifests.yaml
+- bases/cache.orca.com_dappinventories.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:
